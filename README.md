@@ -7,7 +7,6 @@
 复制js文件
 
 
-Tips
 sambanova2api请到官方获取accessToken（https://cloud.sambanova.ai）
 
 
