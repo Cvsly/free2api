@@ -3,8 +3,7 @@
 
 
 
-二 cf版本
-复制js文件
+二 cf版本:复制js文件到worker
 
 
 sambanova2api请到官方获取accessToken（https://cloud.sambanova.ai）
