@@ -1,3 +1,6 @@
+const accessToken = ""
+// 填写你的 access_token
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
