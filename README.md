@@ -1,4 +1,4 @@
-一 demo版本
+一 deno版本
 
 https://dash.deno.com/
 
