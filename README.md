@@ -1,9 +1,11 @@
 一 demo版本
-[https://dash.deno.com/](https://dash.deno.com/login?redirect=%2F)
+
+https://dash.deno.com/
 
 
 
-二 cf版本:复制js文件到worker
+二 worker版本
+复制js文件内容到worker
 
 
 sambanova2api请到官方获取accessToken（https://cloud.sambanova.ai）
@@ -15,7 +17,7 @@ SophNet2api
 
 
 
-代码来源
+代码来源：L站大佬
 
 https://gist.github.com/J3n5en/69849d814ae5bd0ac40812ef61c5575d
 
