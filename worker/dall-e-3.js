@@ -1,20 +1,19 @@
 async function generateImage(prompt) {
   const URL = "https://fluximg.com/api/image/generateImage";
-  const DEFAULT_SIZE = "1:1";
+  const DEFAULT_SIZE = "16:9";
   let size = DEFAULT_SIZE;
   let cleanPrompt = prompt;
 
+
   // 处理图像规格
   if (prompt) {
-    const lastCommaIndex = prompt.lastIndexOf(',');
-    if (lastCommaIndex !== -1) {
-      const possibleSize = prompt.slice(lastCommaIndex + 1).trim();
-      if (possibleSize.startsWith('—') || possibleSize.startsWith('-')) {
-        const cleanSize = possibleSize.slice(1).trim();
-        if (isSizeValid(cleanSize)) {
-          size = cleanSize;
-          cleanPrompt = prompt.slice(0, lastCommaIndex).trim();
-        }
+    const lastDashIndex = prompt.lastIndexOf('---');
+    if (lastDashIndex !== -1) {
+      const possibleSize = prompt.slice(lastDashIndex + 3).trim(); // 获取---后面的内容
+      const cleanSize = possibleSize.trim();
+      if (isSizeValid(cleanSize)) {
+        size = cleanSize;
+        cleanPrompt = prompt.slice(0, lastDashIndex).trim();
       }
     }
   }
@@ -125,6 +124,24 @@ function generateNonStreamResponse(imageData, prompt) {
 }
 
 async function handleRequest(request) {
+  // 处理 GET 请求
+  if (request.method === 'GET') {
+    return new Response(JSON.stringify({
+      object: "list",
+      data: [
+        {
+          id: "flux-schnell",
+          object: "model",
+          created: 1685474247,
+          owned_by: "black-forest-labs"
+        }
+      ]
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // 处理 POST 请求
   if (request.method !== 'POST') {
     return new Response('Only POST requests are allowed', { status: 405 });
   }
