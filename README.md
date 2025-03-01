@@ -8,6 +8,12 @@
 
 sambanova2api请到官方获取accessToken（https://cloud.sambanova.ai）
 
+SophNet2api:
+
+需要配置 kv： SOPHNET 并绑定到 worker。
+
+可选环境变量：AUTH （设置自定义鉴权，不写的话就是 sk-123）和 JSURL（token获取的一个js，这个不用管）
+
 
 
 代码来源
