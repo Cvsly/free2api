@@ -1,6 +1,6 @@
 async function generateImage(prompt) {
   const URL = "https://fluximg.com/api/image/generateImage";
-  const DEFAULT_SIZE = "16:9";
+  const DEFAULT_SIZE = "1:1";
   let size = DEFAULT_SIZE;
   let cleanPrompt = prompt;
 
