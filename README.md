@@ -18,7 +18,7 @@ https://dash.deno.com/
   可选环境变量：AUTH （设置自定义鉴权，不写的话就是 sk-123）和 JSURL（token获取的一个js，这个不用管）
 
 4 akash2api
-  AKASH_COOKIES ：https://chat.akash.network 对话获取
+  AKASH_COOKIES ：https://chat.akash.network 对话获取，多个cookies请用,隔开
   
   OPENAL_APLKEY ：“*” 自选
   
