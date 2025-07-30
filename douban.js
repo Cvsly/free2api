@@ -1,282 +1,513 @@
-// ====================== 元数据配置（完整保留原始结构） ======================
-WidgetMetadata = {
-  id: "douban",
-  title: "豆瓣我看&豆瓣个性化推荐",
-  modules: [
-    // 1. 豆瓣我看（完整参数保留）
-    {
-      title: "豆瓣我看",
-      requiresWebView: false,
-      functionName: "loadInterestItems",
-      cacheDuration: 3600,
-      params: [
-        {
-          name: "user_id",
-          title: "用户ID",
-          type: "input",
-          description: "未填写情况下接口不可用",
-        },
-        {
-          name: "status",
-          title: "状态",
-          type: "enumeration",
-          enumOptions: [
-            { title: "想看", value: "mark" },
-            { title: "在看", value: "doing" },
-            { title: "看过", value: "done" },
-            { title: "随机想看", value: "random_mark" }
-          ]
-        },
-        { name: "page", title: "页码", type: "page" }
-      ]
-    },
+// 豆瓣API工具类
+class DoubanAPI {
+  static async fetchUserInterests(userId, status, start = 0, count = 20) {
+    const url = `https://m.douban.com/rexxar/api/v2/user/${userId}/interests?status=${status}&start=${start}&count=${count}`;
     
-    // 2. 豆瓣个性化推荐（完整参数保留）
-    {
-      title: "豆瓣个性化推荐",
-      requiresWebView: false,
-      functionName: "loadSuggestionItems",
-      cacheDuration: 43200,
-      params: [
-        {
-          name: "cookie",
-          title: "用户Cookie",
-          type: "input",
-          description: "未填写情况下非个性化推荐"
-        },
-        {
-          name: "type",
-          title: "类型",
-          type: "enumeration",
-          enumOptions: [
-            { title: "电影", value: "movie" },
-            { title: "电视", value: "tv" }
-          ]
-        },
-        { name: "page", title: "页码", type: "page" }
-      ]
-    },
-    
-    // 3. 豆瓣片单（保留所有预设片单）
-    {
-      title: "豆瓣片单(TMDB版)",
-      requiresWebView: false,
-      functionName: "loadCardItems",
-      cacheDuration: 43200,
-      params: [
-        {
-          name: "url",
-          title: "列表地址",
-          type: "input",
-          placeholders: [
-            { title: "豆瓣热门电影", value: "https://m.douban.com/subject_collection/movie_hot_gaia" },
-            // ...其他原始预设片单保持不变
-          ]
-        },
-        { name: "page", title: "页码", type: "page" }
-      ]
-    },
-    
-    // 4. 观影偏好（完整参数结构保留）
-    {
-      title: "观影偏好(TMDB版)",
-      description: "根据个人偏好推荐影视作品",
-      functionName: "getPreferenceRecommendations",
-      cacheDuration: 86400,
-      params: [
-        // ...完整保留原始参数结构
-      ]
-    }
-  ],
-  version: "1.0.15",
-  requiredVersion: "0.0.1",
-  description: "完整兼容版豆瓣影视功能",
-  author: "huangxd",
-  site: "https://github.com/huangxd-/ForwardWidgets"
-};
-
-// ====================== 核心功能兼容实现 ======================
-
-/**
- * 通用HTTP请求封装（兼容旧版）
- */
-function doubanRequest(url, options, callback) {
-  if (typeof Widget !== 'undefined' && Widget.http) {
-    Widget.http.get(url, options, function(response) {
-      if (response.error) {
-        callback({ error: response.error });
-      } else {
-        try {
-          callback({ data: JSON.parse(response.data) });
-        } catch(e) {
-          callback({ error: "JSON解析失败" });
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Referer: `https://m.douban.com/mine/movie`,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         }
-      }
-    });
-  } else {
-    fetch(url, { headers: options.headers })
-      .then(function(res) { return res.json(); })
-      .then(function(data) { callback({ data: data }); })
-      .catch(function(e) { callback({ error: e.message }); });
-  }
-}
-
-/**
- * 1. 豆瓣我看（兼容随机推荐功能）
- */
-function loadInterestItems(params, callback) {
-  var user_id = params.user_id;
-  if (!user_id) return callback([]);
-  
-  var status = params.status === "random_mark" ? "mark" : params.status;
-  var isRandom = params.status === "random_mark";
-  var count = isRandom ? 50 : 20;
-  var start = (params.page - 1) * count;
-
-  var url = "https://m.douban.com/rexxar/api/v2/user/" + user_id + 
-            "/interests?status=" + status + "&start=" + start + "&count=" + count;
-
-  doubanRequest(url, {
-    headers: {
-      "Referer": "https://m.douban.com/mine/movie",
-      "User-Agent": "Mozilla/5.0 (Forward Compatibility Mode)"
-    }
-  }, function(response) {
-    if (response.error) {
-      console.error("请求失败:", response.error);
-      return callback([]);
-    }
-
-    var items = [];
-    if (response.data && response.data.interests) {
-      items = response.data.interests
-        .filter(function(item) { return item.subject.id; })
-        .map(function(item) { 
-          return { 
-            id: item.subject.id, 
-            type: "douban",
-            title: item.subject.title || "无标题"
-          };
-        });
+      });
       
-      // 处理随机模式
-      if (isRandom && params.page == 1) {
-        items = shuffleArray(items).slice(0, 9);
-      } else if (isRandom && params.page > 1) {
-        items = [];
-      }
+      const data = await response.json();
+      return data.interests || [];
+    } catch (error) {
+      console.error("获取用户兴趣列表失败:", error);
+      return [];
     }
-    callback(items);
-  });
-}
+  }
 
-/**
- * 2. 个性化推荐（兼容Cookie处理）
- */
-function loadSuggestionItems(params, callback) {
-  var cookie = params.cookie || "";
-  var ckMatch = cookie.match(/ck=([^;]+)/);
-  var ckValue = ckMatch ? ckMatch[1] : "";
-  var url = "https://m.douban.com/rexxar/api/v2/" + (params.type || "movie") + 
-            "/suggestion?start=" + ((params.page-1)*20) + "&count=20&ck=" + ckValue;
-
-  doubanRequest(url, {
-    headers: {
-      "Cookie": cookie,
-      "Referer": "https://m.douban.com/movie",
-      "User-Agent": "Mozilla/5.0 (Forward Compatibility Mode)"
-    }
-  }, function(response) {
-    var items = [];
-    if (!response.error && response.data && response.data.items) {
-      items = response.data.items.map(function(item) {
-        return { id: item.id, type: "douban" };
+  static async fetchSuggestions(cookie, type, start = 0, count = 20) {
+    const ckMatch = cookie.match(/ck=([^;]+)/);
+    const ckValue = ckMatch ? ckMatch[1] : null;
+    const url = `https://m.douban.com/rexxar/api/v2/${type}/suggestion?start=${start}&count=${count}&new_struct=1&with_review=1&ck=${ckValue}`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Referer: `https://m.douban.com/movie`,
+          Cookie: cookie,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
       });
+      
+      const data = await response.json();
+      return data.items || [];
+    } catch (error) {
+      console.error("获取推荐列表失败:", error);
+      return [];
     }
-    callback(items);
-  });
-}
+  }
 
-/**
- * 3. 豆瓣片单解析（兼容两种URL类型）
- */
-function loadCardItems(params, callback) {
-  var url = params.url;
-  if (!url) return callback([]);
+  static async fetchSubjectCollection(collectionId, type, start = 0, count = 20) {
+    const url = `https://m.douban.com/rexxar/api/v2/subject_collection/${collectionId}/items?start=${start}&count=${count}&updated_at&items_only=1&type_tag&for_mobile=1${type ? `&type=${type}` : ''}`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Referer: `https://m.douban.com/subject_collection/${collectionId}/`,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      const data = await response.json();
+      return data.subject_collection_items || [];
+    } catch (error) {
+      console.error("获取豆瓣合集失败:", error);
+      return [];
+    }
+  }
 
-  if (url.includes("douban.com/doulist/")) {
-    parseDoulist(url, params.page, callback);
-  } else if (url.includes("douban.com/subject_collection/")) {
-    parseSubjectCollection(url, params.page, callback);
-  } else {
-    callback([]);
+  static async fetchDoubanList(listId, start = 0, count = 25) {
+    const pageUrl = `https://www.douban.com/doulist/${listId}/?start=${start}&sort=seq&playable=0&sub_type=`;
+    
+    try {
+      const response = await fetch(pageUrl, {
+        headers: {
+          Referer: `https://movie.douban.com/explore`,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const items = Array.from(doc.querySelectorAll('.doulist-item .title a'));
+      
+      return items.map(item => {
+        const link = item.getAttribute('href');
+        const text = item.textContent.trim().split(' ')[0];
+        return { title: text, type: "multi" };
+      });
+    } catch (error) {
+      console.error("获取豆瓣片单失败:", error);
+      return [];
+    }
+  }
+
+  static async fetchRecommendations(mediaType, category, categoryType, start = 0, count = 20) {
+    let url = `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${mediaType}?start=${start}&limit=${count}&category=${category}&type=${categoryType}`;
+    
+    if (category === "all") {
+      url = `https://m.douban.com/rexxar/api/v2/${mediaType}/recommend?refresh=0&start=${start}&count=${count}&selected_categories=%7B%7D&uncollect=false&score_range=0,10&tags=`;
+    }
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Referer: `https://movie.douban.com/${mediaType}`,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      const data = await response.json();
+      return data.items || [];
+    } catch (error) {
+      console.error("获取推荐失败:", error);
+      return [];
+    }
+  }
+
+  static async fetchActorWorks(actorId, sortBy = "vote", start = 0, count = 50) {
+    const url = `https://m.douban.com/rexxar/api/v2/celebrity/${actorId}/works?start=${start}&count=${count}&sort=${sortBy}`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Referer: `https://m.douban.com/movie`,
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      const data = await response.json();
+      return data.works || [];
+    } catch (error) {
+      console.error("获取影人作品失败:", error);
+      return [];
+    }
+  }
+
+  static async searchActor(name) {
+    const apiUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(name)}`;
+    
+    try {
+      const response = await fetch(apiUrl, {
+        headers: {
+          Referer: "https://movie.douban.com/",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      const data = await response.json();
+      return data.find(item => item.type === "celebrity")?.id || null;
+    } catch (error) {
+      console.error("搜索影人失败:", error);
+      return null;
+    }
   }
 }
 
-// ====================== 辅助工具函数 ======================
-
-/** 豆瓣片单解析（doulist类型） */
-function parseDoulist(url, page, callback) {
-  var listId = url.match(/doulist\/(\d+)/)[1];
-  var pageUrl = "https://www.douban.com/doulist/" + listId + "/?start=" + ((page-1)*25);
-
-  doubanRequest(pageUrl, {
-    headers: { "Referer": "https://movie.douban.com/explore" }
-  }, function(response) {
-    var items = [];
-    if (!response.error && response.data) {
-      // 这里需要DOM解析（简化版示例）
-      var pattern = /<a href="https:\/\/movie.douban.com\/subject\/(\d+)/g;
-      var matches;
-      while ((matches = pattern.exec(response.data)) !== null) {
-        items.push({ id: matches[1], type: "douban" });
-      }
+// TMDB工具类
+class TMDBHelper {
+  static async searchMedia(query, mediaType) {
+    try {
+      const response = await fetch(`/api/tmdb/search?query=${encodeURIComponent(query)}&type=${mediaType}`);
+      const data = await response.json();
+      return data.results || [];
+    } catch (error) {
+      console.error("搜索TMDB失败:", error);
+      return [];
     }
-    callback(items);
-  });
-}
-
-/** 豆瓣合集解析 */
-function parseSubjectCollection(url, page, callback) {
-  var listId = url.match(/subject_collection\/(\w+)/)[1];
-  var apiUrl = "https://m.douban.com/rexxar/api/v2/subject_collection/" + 
-               listId + "/items?start=" + ((page-1)*20) + "&count=20";
-
-  doubanRequest(apiUrl, {
-    headers: { "Referer": "https://m.douban.com/" }
-  }, function(response) {
-    var items = [];
-    if (!response.error && response.data && response.data.subject_collection_items) {
-      items = response.data.subject_collection_items.map(function(item) {
-        return { id: item.id, type: "douban" };
-      });
-    }
-    callback(items);
-  });
-}
-
-/** 数组随机排序 */
-function shuffleArray(array) {
-  for (var i = array.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var temp = array[i];
-    array[i] = array[j];
-    array[j] = temp;
   }
-  return array;
+
+  static cleanTitle(title) {
+    // 特殊替换
+    if (title === "歌手" || title.startsWith("歌手·") || title.match(/^歌手\d{4}$/)) {
+      return "我是歌手";
+    }
+
+    // 删除括号及其中内容
+    title = title.replace(/[（(【\[].*?[）)】\]]/g, '');
+
+    // 删除季数、期数等
+    const patterns = [
+      /[·\-:]\s*[^·\-:]+季/,
+      /第[^季]*季/,
+      /(?:Part|Season|Series)\s*\d+/i,
+      /\d{4}/,
+      /(?:\s+|^)\d{1,2}(?:st|nd|rd|th)?(?=\s|$)/i,
+      /(?<=[^\d\W])\d+\s*$/,
+      /[·\-:].*$/,
+    ];
+    
+    patterns.forEach(pattern => {
+      title = title.replace(pattern, '');
+    });
+
+    // 删除结尾修饰词
+    const tailKeywords = ['前传', '后传', '外传', '番外篇', '番外', '特别篇', '剧场版', 'SP', '最终季', '完结篇', '完结', '电影', 'OVA', '后篇'];
+    tailKeywords.forEach(kw => {
+      title = title.replace(new RegExp(`${kw}$`), '');
+    });
+
+    title = title.trim();
+
+    // 对"多个词"的情况，仅保留第一个"主标题"
+    const parts = title.split(/\s+/);
+    if (parts.length > 1) {
+      return parts[0].replace(/\d+$/, '');
+    }
+    
+    return title.replace(/\d+$/, '');
+  }
 }
 
-// ====================== 初始化兼容性检查 ======================
-if (typeof Widget === 'undefined') {
-  Widget = {};
-}
-if (!Widget.http) {
-  Widget.http = {
-    get: function(url, options, callback) {
-      fetch(url, { headers: options.headers })
-        .then(function(res) { return res.text(); })
-        .then(function(text) { callback({ data: text }); })
-        .catch(function(e) { callback({ error: e.message }); });
+// 豆瓣我看功能
+class DoubanInterests {
+  static async getInterests(params) {
+    const { user_id, status, page } = params;
+    const count = status === "random_mark" ? 50 : 20;
+    const start = (page - 1) * count;
+    
+    if (status === "random_mark") {
+      if (page > 1) return [];
+      
+      let allInterests = [];
+      let currentStart = 0;
+      
+      while (true) {
+        const interests = await DoubanAPI.fetchUserInterests(user_id, "mark", currentStart, count);
+        allInterests = [...allInterests, ...interests];
+        
+        if (interests.length < count) break;
+        currentStart += count;
+      }
+      
+      // 随机抽取9个
+      const shuffled = allInterests.sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, Math.min(9, shuffled.length)).map(item => ({
+        id: item.subject.id,
+        type: "douban"
+      }));
+    } else {
+      const interests = await DoubanAPI.fetchUserInterests(user_id, status, start, count);
+      return interests.map(item => ({
+        id: item.subject.id,
+        type: "douban"
+      }));
     }
-  };
+  }
 }
+
+// 豆瓣个性化推荐功能
+class DoubanSuggestions {
+  static async getSuggestions(params) {
+    const { cookie, type, page } = params;
+    const count = 20;
+    const start = (page - 1) * count;
+    
+    const items = await DoubanAPI.fetchSuggestions(cookie, type, start, count);
+    return items.filter(item => item.id != null).map(item => ({
+      id: item.id,
+      type: "douban"
+    }));
+  }
+}
+
+// 豆瓣片单功能
+class DoubanCollections {
+  static async getCollectionItems(params) {
+    const { url, page } = params;
+    
+    if (url.includes("douban.com/doulist/")) {
+      return this.getDoubanListItems(params);
+    } else if (url.includes("douban.com/subject_collection/")) {
+      return this.getSubjectCollectionItems(params);
+    }
+    
+    return [];
+  }
+
+  static async getDoubanListItems(params) {
+    const { url, page } = params;
+    const listId = url.match(/doulist\/(\d+)/)?.[1];
+    if (!listId) return [];
+    
+    const count = 25;
+    const start = (page - 1) * count;
+    
+    const items = await DoubanAPI.fetchDoubanList(listId, start, count);
+    return this.fetchTMDBItems(items);
+  }
+
+  static async getSubjectCollectionItems(params) {
+    const { url, page, type } = params;
+    const collectionId = url.match(/subject_collection\/(\w+)/)?.[1];
+    if (!collectionId) return [];
+    
+    const count = 20;
+    const start = (page - 1) * count;
+    
+    const items = await DoubanAPI.fetchSubjectCollection(collectionId, type, start, count);
+    return this.fetchTMDBItems(items);
+  }
+
+  static async fetchTMDBItems(items) {
+    const promises = items.map(async item => {
+      if (!item || !item.title) return null;
+      
+      const title = item.type === "tv" ? TMDBHelper.cleanTitle(item.title) : item.title;
+      const results = await TMDBHelper.searchMedia(title, item.type);
+      
+      if (results.length > 0) {
+        return {
+          id: results[0].id,
+          type: "tmdb",
+          title: results[0].title ?? results[0].name,
+          description: results[0].overview,
+          releaseDate: results[0].release_date ?? results[0].first_air_date,
+          backdropPath: results[0].backdrop_path,
+          posterPath: results[0].poster_path,
+          rating: results[0].vote_average,
+          mediaType: item.type !== "multi" ? item.type : results[0].media_type,
+        };
+      }
+      return null;
+    });
+    
+    const results = await Promise.all(promises);
+    const validItems = results.filter(Boolean);
+    
+    // 去重
+    const seenTitles = new Set();
+    return validItems.filter(item => {
+      if (seenTitles.has(item.title)) return false;
+      seenTitles.add(item.title);
+      return true;
+    });
+  }
+}
+
+// 电影/剧集推荐功能
+class DoubanRecommendations {
+  static async getRecommendMovies(params) {
+    return this.getRecommendItems(params, "movie");
+  }
+
+  static async getRecommendShows(params) {
+    return this.getRecommendItems(params, "tv");
+  }
+
+  static async getRecommendItems(params, type) {
+    const { category, type: categoryType, page } = params;
+    const count = 20;
+    const start = (page - 1) * count;
+    
+    const items = await DoubanAPI.fetchRecommendations(type, category, categoryType, start, count);
+    return DoubanCollections.fetchTMDBItems(items);
+  }
+}
+
+// 观影偏好推荐功能
+class PreferenceRecommendations {
+  static async getRecommendations(params) {
+    const {
+      mediaType,
+      movieGenre,
+      tvGenre,
+      zyGenre,
+      tvModus,
+      region,
+      year,
+      platform,
+      sort_by,
+      tags,
+      rating,
+      offset
+    } = params;
+    
+    // 验证评分
+    if (!/^\d$/.test(String(rating))) {
+      throw new Error("评分必须为 0～9 的整数");
+    }
+    
+    const selectedCategories = {
+      "类型": movieGenre || tvGenre || zyGenre || "",
+      "地区": region || "",
+      "形式": tvModus || "",
+    };
+    
+    const tags_sub = [];
+    if (movieGenre) tags_sub.push(movieGenre);
+    if (tvModus && !tvGenre && !zyGenre) tags_sub.push(tvModus);
+    if (tvModus && tvGenre) tags_sub.push(tvGenre);
+    if (tvModus && zyGenre) tags_sub.push(zyGenre);
+    if (region) tags_sub.push(region);
+    if (year) tags_sub.push(year);
+    if (platform) tags_sub.push(platform);
+    
+    if (tags) {
+      const customTagsArray = tags.split(',').filter(tag => tag.trim() !== '');
+      tags_sub.push(...customTagsArray);
+    }
+    
+    const limit = 20;
+    const url = `https://m.douban.com/rexxar/api/v2/${mediaType}/recommend?refresh=0&start=${offset}&count=${Number(offset) + limit}&selected_categories=${encodeURIComponent(JSON.stringify(selectedCategories))}&uncollect=false&score_range=${rating},10&tags=${encodeURIComponent(tags_sub.join(","))}&sort=${sort_by}`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Referer": "https://movie.douban.com/explore"
+        }
+      });
+      
+      const data = await response.json();
+      const validItems = data.items?.filter(item => item.card === "subject") || [];
+      
+      if (validItems.length === 0) {
+        throw new Error("未找到有效的影视作品");
+      }
+      
+      return DoubanCollections.fetchTMDBItems(validItems);
+    } catch (error) {
+      console.error("获取偏好推荐失败:", error);
+      throw error;
+    }
+  }
+}
+
+// 豆瓣影人作品功能
+class DoubanActorWorks {
+  static async getActorWorks(params) {
+    const {
+      input_type,
+      name_type,
+      cn_actor_select,
+      cn_actress_select,
+      ht_actor_select,
+      ht_actress_select,
+      jk_actor_select,
+      jk_actress_select,
+      ea_actor_select,
+      ea_actress_select,
+      cn_director_select,
+      fr_director_select,
+      name_customize,
+      actor_select,
+      sort_by,
+      page
+    } = params;
+    
+    const nameTypeDict = {
+      'cn_actor': cn_actor_select,
+      'cn_actress': cn_actress_select,
+      'ht_actor': ht_actor_select,
+      'ht_actress': ht_actress_select,
+      'jk_actor': jk_actor_select,
+      'jk_actress': jk_actress_select,
+      'ea_actor': ea_actor_select,
+      'ea_actress': ea_actress_select,
+      'cn_director': cn_director_select,
+      'fr_director': fr_director_select,
+    };
+    
+    let actor;
+    if (actor_select) {
+      actor = actor_select;
+    } else if (input_type === "select") {
+      actor = nameTypeDict[name_type];
+    } else {
+      actor = name_customize;
+    }
+    
+    if (!actor) {
+      throw new Error("缺少演员姓名");
+    }
+    
+    const actorId = await DoubanAPI.searchActor(actor);
+    if (!actorId) {
+      throw new Error("解析豆瓣影人ID失败");
+    }
+    
+    const count = 50;
+    const start = (page - 1) * count;
+    const works = await DoubanAPI.fetchActorWorks(actorId, sort_by, start, count);
+    
+    return works.filter(work => work.work.id != null).map(work => ({
+      id: work.work.id,
+      type: "douban"
+    }));
+  }
+}
+
+// 豆瓣首页轮播图功能
+class DoubanCarousel {
+  static async getCarouselItems() {
+    try {
+      const response = await fetch(`https://gist.githubusercontent.com/huangxd-/5ae61c105b417218b9e5bad7073d2f36/raw/douban_carousel.json`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        }
+      });
+      
+      return await response.json();
+    } catch (error) {
+      console.error("获取轮播图失败:", error);
+      return [];
+    }
+  }
+}
+
+// 导出所有功能
+export {
+  DoubanInterests,
+  DoubanSuggestions,
+  DoubanCollections,
+  DoubanRecommendations,
+  PreferenceRecommendations,
+  DoubanActorWorks,
+  DoubanCarousel
+};
