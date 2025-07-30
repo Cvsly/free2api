@@ -10,8 +10,8 @@ WidgetMetadata = {
       cacheDuration: 3600,
       params: [
         {
-          name: "user_id",
-          title: "用户ID",
+          name: "Show白",
+          title: "290057643",
           type: "input",
           description: "未填写情况下接口不可用",
         },
