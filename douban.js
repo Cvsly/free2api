@@ -1,6 +1,6 @@
-// ====================== 元数据配置（100%保留原始结构） ======================
+// ====================== 元数据配置（完全保留原始结构） ======================
 WidgetMetadata = {
-  id: "douban_full",
+  id: "douban_compatible",
   title: "豆瓣全功能兼容版",
   modules: [
     // 1. 豆瓣我看（完整保留原始参数）
@@ -119,45 +119,57 @@ WidgetMetadata = {
       ]
     }
   ],
-  version: "1.0.15",
-  requiredVersion: "0.0.1",
+  version: "1.0.0",  // 降低版本号
+  requiredVersion: "0.0.1",  // 明确最低兼容版本
   description: "完全兼容旧版Forward的豆瓣全功能版",
   author: "huangxd",
   site: "https://github.com/huangxd-/ForwardWidgets"
 };
 
-// ====================== 核心功能实现 ======================
+// ====================== 兼容性核心实现 ======================
 
-/** 通用网络请求封装 */
-function doubanRequest(method, url, data, headers, callback) {
+/**
+ * 基础HTTP请求封装（完全兼容ES5）
+ */
+function httpRequest(method, url, headers, callback) {
   if (typeof Widget !== 'undefined' && Widget.http) {
     // 使用Forward原生HTTP模块
-    var options = { headers: headers || {} };
-    if (method === 'POST') options.body = data;
-    
-    Widget.http[method.toLowerCase()](url, options, function(response) {
+    Widget.http[method.toLowerCase()](url, { headers: headers }, function(response) {
       if (response.error) {
         callback(response.error, null);
       } else {
         try {
-          callback(null, JSON.parse(response.data));
+          var data = JSON.parse(response.data);
+          callback(null, data);
         } catch(e) {
-          callback("JSON解析失败", null);
+          callback("JSON解析失败: " + e.message, null);
         }
       }
     });
   } else {
-    // 降级使用Fetch API
-    var fetchOptions = {
-      method: method,
-      headers: headers || {}
+    // 降级使用XMLHttpRequest（兼容性最好）
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    for (var key in headers) {
+      if (headers.hasOwnProperty(key)) {
+        xhr.setRequestHeader(key, headers[key]);
+      }
+    }
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            callback(null, data);
+          } catch(e) {
+            callback("JSON解析失败: " + e.message, null);
+          }
+        } else {
+          callback("请求失败: " + xhr.status, null);
+        }
+      }
     };
-    if (method === 'POST') fetchOptions.body = data;
-    
-    fetch(url, fetchOptions)
-      .then(function(res) { return res.json(); })
-      .then(function(data) { callback(null, data); })
-      .catch(function(err) { callback(err.message, null); });
+    xhr.send();
   }
 }
 
@@ -171,25 +183,25 @@ function loadInterestItems(params, callback) {
   var count = isRandom ? 50 : 20;
   var start = (params.page - 1) * count;
 
-  doubanRequest('GET', 
-    `https://m.douban.com/rexxar/api/v2/user/${user_id}/interests?status=${status}&start=${start}&count=${count}`,
-    null,
-    { "Referer": "https://m.douban.com/mine/movie" },
+  httpRequest('GET', 
+    'https://m.douban.com/rexxar/api/v2/user/' + user_id + '/interests?status=' + status + '&start=' + start + '&count=' + count,
+    { 'Referer': 'https://m.douban.com/mine/movie' },
     function(err, data) {
       if (err) return callback(err, []);
       
       var items = [];
       if (data && data.interests) {
-        items = data.interests
-          .filter(function(item) { return item.subject && item.subject.id; })
-          .map(function(item) {
-            return {
+        for (var i = 0; i < data.interests.length; i++) {
+          var item = data.interests[i];
+          if (item.subject && item.subject.id) {
+            items.push({
               id: item.subject.id,
               type: "douban",
-              title: item.subject.title,
+              title: item.subject.title || "无标题",
               rating: item.subject.rating ? item.subject.rating.value : null
-            };
-          });
+            });
+          }
+        }
         
         // 随机模式处理
         if (isRandom) {
@@ -204,22 +216,26 @@ function loadInterestItems(params, callback) {
 
 // ===== 2. 个性化推荐 =====
 function loadSuggestionItems(params, callback) {
-  var cookie = params.cookie || "";
+  var cookie = params.cookie || '';
   var ckMatch = cookie.match(/ck=([^;]+)/);
-  var ckValue = ckMatch ? ckMatch[1] : "";
+  var ckValue = ckMatch ? ckMatch[1] : '';
   
-  doubanRequest('GET',
-    `https://m.douban.com/rexxar/api/v2/${params.type || 'movie'}/suggestion?start=${(params.page-1)*20}&count=20&ck=${ckValue}`,
-    null,
+  httpRequest('GET',
+    'https://m.douban.com/rexxar/api/v2/' + (params.type || 'movie') + '/suggestion?start=' + ((params.page-1)*20) + '&count=20&ck=' + ckValue,
     { 
-      "Cookie": cookie,
-      "Referer": `https://m.douban.com/${params.type || 'movie'}`
+      'Cookie': cookie,
+      'Referer': 'https://m.douban.com/' + (params.type || 'movie')
     },
     function(err, data) {
       if (err) return callback(err, []);
-      callback(null, (data && data.items) ? data.items.map(function(item) {
-        return { id: item.id, type: "douban" };
-      }) : []);
+      
+      var items = [];
+      if (data && data.items) {
+        for (var i = 0; i < data.items.length; i++) {
+          items.push({ id: data.items[i].id, type: "douban" });
+        }
+      }
+      callback(null, items);
     }
   );
 }
@@ -229,39 +245,41 @@ function loadCardItems(params, callback) {
   var url = params.url;
   if (!url) return callback("需要片单URL", []);
   
-  if (url.includes("douban.com/doulist/")) {
+  if (url.indexOf("douban.com/doulist/") !== -1) {
     // 解析普通片单
     var listId = url.match(/doulist\/(\d+)/)[1];
-    doubanRequest('GET',
-      `https://www.douban.com/doulist/${listId}/?start=${(params.page-1)*25}`,
-      null,
-      { "Referer": "https://movie.douban.com/explore" },
+    httpRequest('GET',
+      'https://www.douban.com/doulist/' + listId + '/?start=' + ((params.page-1)*25),
+      { 'Referer': 'https://movie.douban.com/explore' },
       function(err, html) {
         if (err) return callback(err, []);
         
-        // 简化版HTML解析
+        // 兼容性HTML解析
         var items = [];
-        var pattern = /<a href="https:\/\/movie\.douban\.com\/subject\/(\d+)/g;
+        var regex = /<a href="https:\/\/movie\.douban\.com\/subject\/(\d+)/g;
         var match;
-        while ((match = pattern.exec(html)) !== null) {
+        while ((match = regex.exec(html)) !== null) {
           items.push({ id: match[1], type: "douban" });
         }
         callback(null, items);
       }
     );
-  } else if (url.includes("douban.com/subject_collection/")) {
+  } else if (url.indexOf("douban.com/subject_collection/") !== -1) {
     // 解析官方合集
     var collId = url.match(/subject_collection\/(\w+)/)[1];
-    doubanRequest('GET',
-      `https://m.douban.com/rexxar/api/v2/subject_collection/${collId}/items?start=${(params.page-1)*20}&count=20`,
-      null,
-      { "Referer": `https://m.douban.com/subject_collection/${collId}/` },
+    httpRequest('GET',
+      'https://m.douban.com/rexxar/api/v2/subject_collection/' + collId + '/items?start=' + ((params.page-1)*20) + '&count=20',
+      { 'Referer': 'https://m.douban.com/subject_collection/' + collId + '/' },
       function(err, data) {
         if (err) return callback(err, []);
-        callback(null, (data && data.subject_collection_items) ? 
-          data.subject_collection_items.map(function(item) {
-            return { id: item.id, type: "douban" };
-          }) : []);
+        
+        var items = [];
+        if (data && data.subject_collection_items) {
+          for (var i = 0; i < data.subject_collection_items.length; i++) {
+            items.push({ id: data.subject_collection_items[i].id, type: "douban" });
+          }
+        }
+        callback(null, items);
       }
     );
   } else {
@@ -271,35 +289,41 @@ function loadCardItems(params, callback) {
 
 // ===== 4. 观影偏好 =====
 function getPreferenceRecommendations(params, callback) {
-  var query = {
+  var queryParams = {
     mediaType: params.mediaType || "movie",
     // 构建完整查询参数...
     page: params.page || 1
   };
   
-  doubanRequest('GET',
-    `https://m.douban.com/rexxar/api/v2/${query.mediaType}/recommend?` + 
-    `start=${(query.page-1)*20}&count=20&` +
-    `selected_categories=${encodeURIComponent(JSON.stringify({
-      "类型": params.movieGenre || params.tvGenre || "",
-      "地区": params.region || "",
-      "年份": params.year || ""
-    }))}&` +
-    `tags=${encodeURIComponent(params.tags || "")}`,
-    null,
-    { "Referer": "https://m.douban.com/" },
+  var queryString = 'start=' + ((queryParams.page-1)*20) + '&count=20&';
+  queryString += 'selected_categories=' + encodeURIComponent(JSON.stringify({
+    "类型": params.movieGenre || params.tvGenre || "",
+    "地区": params.region || "",
+    "年份": params.year || ""
+  }));
+  queryString += '&tags=' + encodeURIComponent(params.tags || "");
+  
+  httpRequest('GET',
+    'https://m.douban.com/rexxar/api/v2/' + queryParams.mediaType + '/recommend?' + queryString,
+    { 'Referer': 'https://m.douban.com/' },
     function(err, data) {
       if (err) return callback(err, []);
-      callback(null, (data && data.items) ? 
-        data.items.filter(function(item) { return item.card === "subject"; })
-          .map(function(item) {
-            return {
+      
+      var items = [];
+      if (data && data.items) {
+        for (var i = 0; i < data.items.length; i++) {
+          var item = data.items[i];
+          if (item.card === "subject") {
+            items.push({
               id: item.id,
               type: "douban",
               title: item.title,
               rating: item.rating ? item.rating.value : null
-            };
-          }) : []);
+            });
+          }
+        }
+      }
+      callback(null, items);
     }
   );
 }
@@ -323,33 +347,44 @@ function loadActorItems(params, callback) {
   if (!actorName) return callback("需要演员姓名", []);
   
   // 先搜索演员ID
-  doubanRequest('GET',
-    `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(actorName)}`,
-    null,
-    { "Referer": "https://movie.douban.com/" },
+  httpRequest('GET',
+    'https://movie.douban.com/j/subject_suggest?q=' + encodeURIComponent(actorName),
+    { 'Referer': 'https://movie.douban.com/' },
     function(err, data) {
       if (err) return callback(err, []);
       
-      var actor = (data || []).find(function(item) { return item.type === "celebrity"; });
+      var actor = null;
+      if (data) {
+        for (var i = 0; i < data.length; i++) {
+          if (data[i].type === "celebrity") {
+            actor = data[i];
+            break;
+          }
+        }
+      }
       if (!actor) return callback("未找到该影人", []);
       
       // 获取作品列表
-      doubanRequest('GET',
-        `https://m.douban.com/rexxar/api/v2/celebrity/${actor.id}/works?` +
-        `start=${(params.page-1)*50}&count=50&sort=${params.sort_by || "vote"}`,
-        null,
-        { "Referer": "https://m.douban.com/" },
+      httpRequest('GET',
+        'https://m.douban.com/rexxar/api/v2/celebrity/' + actor.id + '/works?' +
+        'start=' + ((params.page-1)*50) + '&count=50&sort=' + (params.sort_by || "vote"),
+        { 'Referer': 'https://m.douban.com/' },
         function(err, data) {
           if (err) return callback(err, []);
-          callback(null, (data && data.works) ? 
-            data.works.map(function(item) {
-              return {
-                id: item.work.id,
+          
+          var items = [];
+          if (data && data.works) {
+            for (var i = 0; i < data.works.length; i++) {
+              var work = data.works[i].work;
+              items.push({
+                id: work.id,
                 type: "douban",
-                title: item.work.title,
-                year: item.work.year
-              };
-            }) : []);
+                title: work.title,
+                year: work.year
+              });
+            }
+          }
+          callback(null, items);
         }
       );
     }
@@ -358,51 +393,48 @@ function loadActorItems(params, callback) {
 
 // ====================== 工具函数 ======================
 function shuffleArray(array) {
-  for (var i = array.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var temp = array[i];
-    array[i] = array[j];
-    array[j] = temp;
+  var currentIndex = array.length, temporaryValue, randomIndex;
+  while (currentIndex !== 0) {
+    randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex -= 1;
+    temporaryValue = array[currentIndex];
+    array[currentIndex] = array[randomIndex];
+    array[randomIndex] = temporaryValue;
   }
   return array;
 }
 
-// ====================== 兼容性初始化 ======================
+// ====================== 兼容性垫片 ======================
 (function() {
-  // 确保Widget对象存在
+  // 确保基础对象存在
   if (typeof Widget === 'undefined') {
     Widget = {};
   }
   
-  // 模拟缺失的API
+  // 模拟缺失的模块
   if (!Widget.http) {
     Widget.http = {
       get: function(url, options, callback) {
-        fetch(url, { headers: options.headers || {} })
-          .then(function(res) { return res.text(); })
-          .then(function(text) { 
-            callback({ data: text }); 
-          })
-          .catch(function(err) { 
-            callback({ error: err.message }); 
-          });
-      },
-      post: function(url, options, callback) {
-        fetch(url, { 
-          method: 'POST',
-          headers: options.headers || {},
-          body: options.body 
-        })
-        // ...类似get的实现
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        if (options && options.headers) {
+          for (var key in options.headers) {
+            if (options.headers.hasOwnProperty(key)) {
+              xhr.setRequestHeader(key, options.headers[key]);
+            }
+          }
+        }
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              callback({ data: xhr.responseText });
+            } else {
+              callback({ error: xhr.statusText });
+            }
+          }
+        };
+        xhr.send();
       }
-    };
-  }
-  
-  if (!Widget.dom) {
-    Widget.dom = {
-      parse: function(html) { /* 简化实现 */ },
-      select: function(root, selector) { /* 简化实现 */ },
-      text: function(element) { /* 简化实现 */ }
     };
   }
 })();
