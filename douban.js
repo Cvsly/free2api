@@ -6,8 +6,8 @@ WidgetMetadata = {
     functionName: "loadDoubanHot",
     cacheDuration: 3600
   }],
-  version: "1.0.0",
-  requiredVersion: "1.0.0"
+  version: "1.4.18",
+  requiredVersion: "1.4.18"
 };
 
 async function loadDoubanHot() {
