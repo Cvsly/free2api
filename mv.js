@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.4.2",
+  version: "2.5.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -233,12 +233,13 @@ async function fetchDomesticVariety(params = {}) {
   return applySorting(uniqueItems, sortBy, 'variety');
 }
 
-// --- 核心逻辑 ---
+// --- 核心逻辑：本地过滤地区，100%生效 ---
 async function getDataWithFallback(type, params) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
   const sortBy = params.sort_by || "popularity.desc";
-  
+  const region = params.region || "all";
+
   let items = [];
   if (['movie', 'tv'].includes(type)) {
     try {
@@ -262,20 +263,27 @@ async function getDataWithFallback(type, params) {
       }];
     }
 
-    const tmdbData = await fetchTmdbDiscover(type, offset, apiKey, params);
-    return applySorting(tmdbData, sortBy, type);
+    items = await fetchTmdbDiscover(type, offset, apiKey, params);
   }
 
-  console.log(`[成功] 获取到 ${items.length} 条豆瓣数据，正在补全...`);
-  const searchType = type === 'movie' ? 'movie' : 'tv';
-  const tasks = items.map(item => searchTmdb(item.title, searchType, apiKey));
-  const results = await Promise.all(tasks);
-  const filteredResults = results.filter(r => r !== null);
-  
-  return applySorting(filteredResults, sortBy, type);
+  // ==================== 关键：本地按【发行/制作方】过滤地区 ====================
+  if ((type === 'movie' || type === 'tv') && region !== 'all') {
+    items = items.filter(item => {
+      // 判定国产规则：语言是中文 或 制作国家含CN
+      const isChineseLang = (item.original_language || '').startsWith('zh');
+      const isFromCN = (item.origin_country || []).includes('CN');
+      const isDomestic = isChineseLang || isFromCN;
+
+      if (region === 'CN') return isDomestic;
+      if (region === 'foreign') return !isDomestic;
+      return true;
+    });
+  }
+
+  return applySorting(items, sortBy, type);
 }
 
-// --- 可用豆瓣接口 ---
+// --- 豆瓣数据源 ---
 async function fetchDouban(type, offset) {
   let url = "";
   const start = offset;
@@ -298,6 +306,8 @@ async function fetchDouban(type, offset) {
     return res.data.subject_collection_items.map(item => ({
       id: item.id,
       title: item.title,
+      original_language: "zh",
+      origin_country: ["CN"],
       description: item.card_subtitle || "",
       rating: (item.rating && item.rating.value) ? item.rating.value : 0,
       releaseDate: item.year || "",
@@ -309,7 +319,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB Discover（已修复：按【制作方+华语】判断国产/国外）---
+// --- TMDB Discover：只拉数据，不做地区筛选，交给本地处理 ---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -320,19 +330,6 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
     include_adult: false,
     sort_by: params.sort_by || "popularity.desc"
   };
-
-  // ==================== 修复：按【华语+中国制作】判断地区 ====================
-  if (type === 'movie' || type === 'tv') {
-    const region = params.region || "all";
-    if (region === "CN") {
-      // 国内：原始语言=中文 + 制作国家=中国（最精准匹配国产片）
-      queryParams.with_original_language = "zh";
-      queryParams.with_origin_country = "CN";
-    } else if (region === "foreign") {
-      // 国外：排除所有中文影片（100% 非国产）
-      queryParams.without_original_language = "zh";
-    }
-  }
 
   if (type === 'anime') {
     endpoint = '/discover/tv';
@@ -373,7 +370,8 @@ async function searchTmdb(keyword, mediaType, apiKey) {
   
   const yearMatch = keyword.match(/\b(19|20)\d{2}\b/);
   const year = yearMatch ? yearMatch[0] : null;
-  const cleanTitle = keyword.replace(/([（(][^）)]*[)）])/g, '')
+  const cleanTitle = keyword
+    .replace(/([（(][^）)]*[)）])/g, '')
     .replace(/剧场版|特别篇|动态漫|中文配音|中配|粤语版|国语版/g, '')
     .replace(/第[0-9一二三四五六七八九十]+季/g, '')
     .trim();
@@ -416,50 +414,23 @@ async function sendTmdbRequest(path, params, apiKey) {
     const res = await Widget.http.get(url, { params: finalParams, headers: headers });
     
     if (res.data && res.data.results) {
-      return res.data.results.map(item => {
-        const genre_ids = item.genre_ids || [];
-        const isAnime = genre_ids.includes(16);
-        const isVariety = genre_ids.some(id => 
-          DOMESTIC_VARIETY_CONFIG.tmdbGenreIds.split(',').includes(id.toString())
-        );
-        let tags = [];
-        
-        if (isAnime) {
-          let animeType = "";
-          if (item.original_language === 'zh' || item.original_language === 'zh-CN') {
-            animeType = "国漫";
-          } else if (item.original_language === 'ja') {
-            animeType = "日漫";
-          } else if (item.original_language === 'ko') {
-            animeType = "韩漫";
-          } else if (item.original_language === 'en') {
-            animeType = (item.origin_country && item.origin_country.includes('US')) ? "美漫" : "英漫";
-          }
-          tags = ["动画", animeType];
-        }
-        
-        if (isVariety) {
-          const varietyType = genre_ids.includes(10764) ? "真人秀" : "脱口秀";
-          const isCN = item.origin_country && item.origin_country.includes('CN');
-          tags = ["综艺", varietyType, isCN ? "国产" : ""];
-        }
-        
-        return {
-          id: item.id,
-          type: "tmdb",
-          title: item.title || item.name,
-          description: item.overview || "暂无简介",
-          posterPath: item.poster_path ? `${IMAGE_BASE}${item.poster_path}` : null,
-          backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/original${item.backdrop_path}` : null,
-          releaseDate: item.release_date || item.first_air_date || "",
-          rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
-          mediaType: path.includes('movie') ? 'movie' : 'tv',
-          popularity: item.popularity || 0,
-          voteCount: item.vote_count || 0,
-          tags: tags.filter(Boolean).slice(0, 3),
-          lastUpdate: item.updated_at || item.release_date || item.first_air_date || ""
-        };
-      });
+      return res.data.results.map(item => ({
+        id: item.id,
+        type: "tmdb",
+        title: item.title || item.name,
+        original_title: item.original_title,
+        original_language: item.original_language,
+        origin_country: item.origin_country || [],
+        description: item.overview || "暂无简介",
+        posterPath: item.poster_path ? `${IMAGE_BASE}${item.poster_path}` : null,
+        backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/original${item.backdrop_path}` : null,
+        releaseDate: item.release_date || item.first_air_date || "",
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
+        mediaType: path.includes('movie') ? 'movie' : 'tv',
+        popularity: item.popularity || 0,
+        voteCount: item.vote_count || 0,
+        lastUpdate: item.updated_at || item.release_date || item.first_air_date || ""
+      }));
     }
   } catch (err) {
     console.error(`TMDB 请求错误: ${err.message}`);
@@ -467,7 +438,7 @@ async function sendTmdbRequest(path, params, apiKey) {
   return [];
 }
 
-// --- 排序函数 ---
+// --- 排序 ---
 function applySorting(items, sortBy, type) {
   if (!items || items.length === 0) return items;
   const sortedItems = [...items];
