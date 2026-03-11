@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.4.0",
+  version: "2.4.1",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -18,7 +18,6 @@ var WidgetMetadata = {
     }
   ],
   modules: [
-    // ==================== 热门电影 - 规范排序 ====================
     {
       title: "热门电影",
       description: "查看实时热门电影，支持排序",
@@ -52,7 +51,6 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
-    // ==================== 热门剧集 - 规范排序 ====================
     {
       title: "热门剧集",
       description: "查看实时热门剧集，支持排序",
@@ -86,7 +84,6 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
-    // ==================== 热门动漫 - 规范排序 ====================
     {
       title: "热门动漫",
       description: "查看实时动漫番剧，支持排序和地区分类",
@@ -124,7 +121,6 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
-    // ==================== 热门综艺 - 规范排序 ====================
     {
       title: "热门综艺",
       description: "聚合爱奇艺/腾讯/芒果TV/优酷综艺，TMDB匹配元数据",
@@ -313,7 +309,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB Discover（规范排序字段）---
+// --- TMDB Discover（已修复地区筛选）---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -325,9 +321,9 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
     sort_by: params.sort_by || "popularity.desc"
   };
 
-  // 电影 / 剧集 地区筛选
-  if ((type === 'movie' || type === 'tv') && params.region) {
-    const region = params.region;
+  // ==================== 修复：电影/剧集 地区筛选 100% 生效 ====================
+  if (type === 'movie' || type === 'tv') {
+    const region = params.region || "all";
     if (region === "CN") {
       queryParams.with_origin_country = "CN";
     } else if (region === "foreign") {
@@ -469,7 +465,7 @@ async function sendTmdbRequest(path, params, apiKey) {
   return [];
 }
 
-// --- 规范排序函数 ---
+// --- 排序函数 ---
 function applySorting(items, sortBy, type) {
   if (!items || items.length === 0) return items;
   const sortedItems = [...items];
