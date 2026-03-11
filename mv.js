@@ -4,10 +4,10 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 var WidgetMetadata = {
   id: "movie_shows",
   title: "热门榜单 (完整版)",
-  description: "含电影/剧集/动漫/国内综艺",
+  description: "含电影/剧集/动漫/国内综艺，全部由 TMDB 兜底封面与元数据",
   author: "crush7s",
   site: "",
-  version: "2.6.1",
+  version: "2.7.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -211,7 +211,7 @@ async function fetchDomesticVariety(params = {}) {
   return applySorting(uniqueItems, sortBy, 'variety');
 }
 
-// --- 核心逻辑 ---
+// --- 核心逻辑：豆瓣数据 + TMDB 兜底补全 ---
 async function getDataWithFallback(type, params) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
@@ -227,9 +227,33 @@ async function getDataWithFallback(type, params) {
     }
   }
 
-  if (!items || items.length === 0) {
-    console.log(`[使用] TMDB 数据源 (${type})...`);
-    
+  // ✅ 关键：用 TMDB 补全所有豆瓣数据的封面和元数据
+  if (items.length > 0 && apiKey) {
+    console.log(`[补全] 用 TMDB 匹配 ${items.length} 条 ${type} 数据...`);
+    const searchType = type === 'movie' ? 'movie' : 'tv';
+    const tasks = items.map(async (item) => {
+      const tmdbItem = await searchTmdb(item.title, searchType, apiKey);
+      if (tmdbItem) {
+        return {
+          ...item,
+          posterPath: tmdbItem.posterPath || item.posterPath,
+          backdropPath: tmdbItem.backdropPath || item.backdropPath,
+          description: tmdbItem.description || item.description,
+          original_language: tmdbItem.original_language || item.original_language,
+          origin_country: tmdbItem.origin_country || item.origin_country,
+          rating: tmdbItem.rating || item.rating,
+          voteCount: tmdbItem.voteCount || item.voteCount,
+          releaseDate: tmdbItem.releaseDate || item.releaseDate,
+          lastUpdate: tmdbItem.lastUpdate || item.lastUpdate
+        };
+      }
+      return item;
+    });
+    items = await Promise.all(tasks);
+  } 
+  // 兜底：无豆瓣数据或无 API Key 时直接用 TMDB
+  else if (!items || items.length === 0) {
+    console.log(`[兜底] 直接使用 TMDB 数据源 (${type})...`);
     if (!apiKey) {
       return [{ 
         id: "error_no_api_key",
@@ -239,14 +263,13 @@ async function getDataWithFallback(type, params) {
         mediaType: "text"
       }];
     }
-
     items = await fetchTmdbDiscover(type, offset, apiKey, params);
   }
 
   return applySorting(items, sortBy, type);
 }
 
-// --- 豆瓣数据源（修复：添加 type 字段）---
+// --- 豆瓣数据源（基础数据）---
 async function fetchDouban(type, offset) {
   let url = "";
   const start = offset;
@@ -268,7 +291,7 @@ async function fetchDouban(type, offset) {
   if (res.data && res.data.subject_collection_items) {
     return res.data.subject_collection_items.map(item => ({
       id: item.id,
-      type: "link", // ✅ 关键修复：添加 type 字段
+      type: "link",
       title: item.title,
       original_language: "zh",
       origin_country: ["CN"],
@@ -277,7 +300,9 @@ async function fetchDouban(type, offset) {
       releaseDate: item.year || "",
       genres: item.genres || [],
       voteCount: (item.rating && item.rating.count) ? item.rating.count : 0,
-      lastUpdate: new Date().toISOString().split('T')[0]
+      lastUpdate: new Date().toISOString().split('T')[0],
+      posterPath: null,
+      backdropPath: null
     }));
   }
   return [];
@@ -328,7 +353,7 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
   return await sendTmdbRequest(endpoint, queryParams, apiKey);
 }
 
-// --- TMDB 搜索 ---
+// --- TMDB 搜索（用于补全豆瓣数据）---
 async function searchTmdb(keyword, mediaType, apiKey) {
   if (!keyword || !apiKey) return null;
   
@@ -380,9 +405,10 @@ async function sendTmdbRequest(path, params, apiKey) {
     if (res.data && res.data.results) {
       return res.data.results.map(item => ({
         id: item.id,
-        type: "tmdb", // ✅ TMDB 条目保留 type
+        type: "tmdb",
         title: item.title || item.name,
         original_title: item.original_title,
+        original_name: item.original_name,
         original_language: item.original_language,
         origin_country: item.origin_country || [],
         description: item.overview || "暂无简介",
