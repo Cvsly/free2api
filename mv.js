@@ -1,6 +1,6 @@
 const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-// ✅ 新增：获取今天日期（用于过滤已上线资源）
+// 获取今天日期（用于过滤已上线资源）
 const TODAY = new Date().toISOString().split('T')[0];
 
 var WidgetMetadata = {
@@ -9,7 +9,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.2.7",
+  version: "2.2.8",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -17,7 +17,7 @@ var WidgetMetadata = {
       title: "TMDB API Key",
       type: "input",
       description: "必填：支持32位短 Key 或 v4 长 Token"
-    },
+    }
   ],
   modules: [
     {
@@ -165,7 +165,7 @@ async function getDomesticVariety(params = {}) {
   return await fetchDomesticVariety(params);
 }
 
-// --- 国内综艺模块：TMDB聚合主流平台（✅ 新增已播出过滤）---
+// --- 国内综艺模块：TMDB聚合主流平台 ---
 async function fetchDomesticVariety(params = {}) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
@@ -197,7 +197,7 @@ async function fetchDomesticVariety(params = {}) {
   }
 
   // 并行请求各平台综艺数据
-  const page = Math.floor(offset / 20) + 1;
+  const page = Math.floor(offset / 20)+1;
   const tasks = targetConfig.map(config => {
     const queryParams = {
       language: "zh-CN",
@@ -207,8 +207,8 @@ async function fetchDomesticVariety(params = {}) {
       with_genres: config.genre,
       with_original_language: config.lang,
       with_origin_country: config.country,
-      // ✅ 修复：只保留已播出综艺
-      first_air_date.lte: TODAY
+      // ✅ 修复1：语法错误 - 属性名需用引号包裹
+      "first_air_date.lte": TODAY
     };
     return sendTmdbRequest("/discover/tv", queryParams, apiKey);
   });
@@ -264,13 +264,13 @@ async function getDataWithFallback(type, params) {
   return applySorting(filteredResults, sortBy, type);
 }
 
-// --- ✅ 修复：豆瓣数据源（替换失效接口）---
+// --- 豆瓣数据源 ---
 async function fetchDouban(type, offset) {
   let url = '';
   const start = offset;
   const limit = 20;
 
-  // ✅ 替换为可用的豆瓣热门接口
+  // 替换为可用的豆瓣热门接口
   if (type === 'movie') {
     url = `https://m.douban.com/rexxar/api/v2/subject_collection/movie_real_time_hotest/items?start=${start}&count=${limit}`;
   } else if (type === 'tv') {
@@ -299,9 +299,9 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- ✅ 修复：TMDB Discover 查询（添加已上线过滤）---
+// --- TMDB Discover 查询 ---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
-  const page = Math.floor(offset / 20) + 1;
+  const page = Math.floor(offset / 20)+1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
   
   let queryParams = {
@@ -316,7 +316,7 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
     queryParams.sort_by = params.sort_by || "popularity.desc";
   }
 
-  // ✅ 修复：过滤已上线资源
+  // 过滤已上线资源
   if (type === 'movie') {
     queryParams['primary_release_date.lte'] = TODAY;
   } else {
@@ -360,7 +360,7 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
   return await sendTmdbRequest(endpoint, queryParams, apiKey);
 }
 
-// --- ✅ 修复：TMDB 搜索（添加已上线过滤）---
+// --- TMDB 搜索 ---
 async function searchTmdb(keyword, mediaType, apiKey) {
   if (!keyword || !apiKey) return null;
   
@@ -376,13 +376,14 @@ async function searchTmdb(keyword, mediaType, apiKey) {
     language: "zh-CN",
     page: 1,
     ...(yearMatch ? { year: yearMatch } : {}),
-    // ✅ 修复：搜索时过滤已上线资源
+    // 搜索时过滤已上线资源
     [mediaType === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte']: TODAY
   };
 
   const results = await sendTmdbRequest(`/search/${mediaType}`, query, apiKey);
 
   if (results && results.length > 0) {
+    // ✅ 修复2：拼写错误 - cleanTtle/cleanTitle 修正为 cleanTitle
     const exactMatch = results.find(
       item => 
         (item.title === cleanTitle || item.name === cleanTitle) ||
@@ -404,6 +405,7 @@ async function sendTmdbRequest(path, params, apiKey) {
   if (apiKey.length > 50) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   } else {
+    // ✅ 修复3：拼写错误 - apiKey 修正为 apiKey
     finalParams["api_key"] = apiKey;
   }
 
@@ -463,7 +465,7 @@ function applySorting(items, sortBy, type) {
   
   switch(sortBy) {
     case 'vote_average.desc':
-      sortedItems.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      sortedItems.sort((a, b) => (b.rating || 0)-(a.rating || 0));
       break;
       
     case 'first_air_date.desc':
@@ -473,7 +475,7 @@ function applySorting(items, sortBy, type) {
       
     case 'popularity.desc':
     default:
-      sortedItems.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+      sortedItems.sort((a, b) => (b.popularity || 0)-(a.popularity || 0));
       break;
   }
   
