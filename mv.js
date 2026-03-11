@@ -4,10 +4,10 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 var WidgetMetadata = {
   id: "movie_shows",
   title: "热门榜单 (完整版)",
-  description: "含电影/剧集/动漫/国内综艺，全部由 TMDB 兜底封面与元数据",
+  description: "电影/剧集 豆瓣+TMDB双源合并 | 动漫/综艺 TMDB源",
   author: "crush7s",
   site: "",
-  version: "2.7.0",
+  version: "2.8.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -20,7 +20,7 @@ var WidgetMetadata = {
   modules: [
     {
       title: "热门电影",
-      description: "查看实时热门电影，支持排序",
+      description: "豆瓣 + TMDB 双源合并",
       requiresWebView: false,
       functionName: "getMovies",
       cacheDuration: 3600,
@@ -42,7 +42,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门剧集",
-      description: "查看实时热门剧集，支持排序",
+      description: "豆瓣 + TMDB 双源合并",
       requiresWebView: false,
       functionName: "getTV",
       cacheDuration: 3600,
@@ -64,7 +64,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门动漫",
-      description: "查看实时动漫番剧，支持排序和地区分类",
+      description: "实时动漫番剧 完整元数据",
       requiresWebView: false,
       functionName: "getAnime",
       cacheDuration: 3600,
@@ -101,7 +101,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门综艺",
-      description: "聚合爱奇艺/腾讯/芒果TV/优酷综艺，TMDB匹配元数据",
+      description: "爱奇艺/腾讯/芒果/优酷 聚合",
       requiresWebView: false,
       functionName: "getDomesticVariety",
       cacheDuration: 1800,
@@ -161,7 +161,7 @@ async function getDomesticVariety(params = {}) {
   return await fetchDomesticVariety(params);
 }
 
-// --- 国内综艺 ---
+// --- 综艺 ---
 async function fetchDomesticVariety(params = {}) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
@@ -211,67 +211,66 @@ async function fetchDomesticVariety(params = {}) {
   return applySorting(uniqueItems, sortBy, 'variety');
 }
 
-// --- 核心逻辑：豆瓣数据 + TMDB 兜底补全 ---
+// --- 核心：电影/剧集 = 豆瓣 + TMDB 同时拉取 + 合并 + 去重 + TMDB兜底 ---
 async function getDataWithFallback(type, params) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
   const sortBy = params.sort_by || "popularity.desc";
 
-  let items = [];
-  if (['movie', 'tv'].includes(type)) {
-    try {
-      console.log(`[尝试] 请求豆瓣 ${type} 数据...`);
-      items = await fetchDouban(type, offset);
-    } catch (e) {
-      console.log(`[跳过] 豆瓣请求失败`);
-    }
+  if (!apiKey) {
+    return [{ 
+      id: "error_no_api_key",
+      title: "请填写 TMDB API Key", 
+      description: "在组件设置中配置", 
+      type: "text",
+      mediaType: "text"
+    }];
   }
 
-  // ✅ 关键：用 TMDB 补全所有豆瓣数据的封面和元数据
-  if (items.length > 0 && apiKey) {
-    console.log(`[补全] 用 TMDB 匹配 ${items.length} 条 ${type} 数据...`);
-    const searchType = type === 'movie' ? 'movie' : 'tv';
-    const tasks = items.map(async (item) => {
-      const tmdbItem = await searchTmdb(item.title, searchType, apiKey);
-      if (tmdbItem) {
-        return {
-          ...item,
-          posterPath: tmdbItem.posterPath || item.posterPath,
-          backdropPath: tmdbItem.backdropPath || item.backdropPath,
-          description: tmdbItem.description || item.description,
-          original_language: tmdbItem.original_language || item.original_language,
-          origin_country: tmdbItem.origin_country || item.origin_country,
-          rating: tmdbItem.rating || item.rating,
-          voteCount: tmdbItem.voteCount || item.voteCount,
-          releaseDate: tmdbItem.releaseDate || item.releaseDate,
-          lastUpdate: tmdbItem.lastUpdate || item.lastUpdate
-        };
-      }
-      return item;
-    });
-    items = await Promise.all(tasks);
-  } 
-  // 兜底：无豆瓣数据或无 API Key 时直接用 TMDB
-  else if (!items || items.length === 0) {
-    console.log(`[兜底] 直接使用 TMDB 数据源 (${type})...`);
-    if (!apiKey) {
-      return [{ 
-        id: "error_no_api_key",
-        title: "请填写 TMDB API Key", 
-        description: "在组件设置中配置", 
-        type: "tmdb",
-        mediaType: "text"
-      }];
-    }
-    items = await fetchTmdbDiscover(type, offset, apiKey, params);
+  let doubanItems = [];
+  let tmdbItems = [];
+
+  // 1. 同时拉取 豆瓣 + TMDB
+  if (type === 'movie' || type === 'tv') {
+    try {
+      doubanItems = await fetchDouban(type, offset);
+    } catch (e) {}
+    try {
+      tmdbItems = await fetchTmdbDiscover(type, offset, apiKey, params);
+    } catch (e) {}
+  } else {
+    tmdbItems = await fetchTmdbDiscover(type, offset, apiKey, params);
   }
+
+  // 2. 合并数据
+  let combined = [...doubanItems, ...tmdbItems];
+
+  // 3. 按标题去重
+  const titleMap = new Map();
+  combined.forEach(item => {
+    const key = (item.title || '').trim().toLowerCase();
+    if (!titleMap.has(key)) titleMap.set(key, item);
+  });
+  let items = Array.from(titleMap.values());
+
+  // 4. 全部用 TMDB 补全封面 & 元数据
+  const searchType = type === 'movie' ? 'movie' : 'tv';
+  const tasks = items.map(async (item) => {
+    const match = await searchTmdb(item.title, searchType, apiKey);
+    if (match) {
+      return { ...item, ...match, type: match.type || 'tmdb' };
+    }
+    return item;
+  });
+  items = await Promise.all(tasks);
+  items = items.filter(i => i && i.title);
 
   return applySorting(items, sortBy, type);
 }
 
-// --- 豆瓣数据源（基础数据）---
+// --- 豆瓣基础数据 ---
 async function fetchDouban(type, offset) {
-  let url = "";
+  let url = '';
   const start = offset;
   const limit = 20;
 
@@ -281,34 +280,22 @@ async function fetchDouban(type, offset) {
     url = `https://m.douban.com/rexxar/api/v2/subject_collection/tv_domestic/items?start=${start}&count=${limit}`;
   }
 
-  const res = await Widget.http.get(url, {
-    headers: {
-      "Referer": "https://m.douban.com/",
-      "User-Agent": USER_AGENT
+  try {
+    const res = await Widget.http.get(url, {
+      headers: { Referer: "https://m.douban.com/", "User-Agent": USER_AGENT }
+    });
+    if (res.data?.subject_collection_items) {
+      return res.data.subject_collection_items.map(item => ({
+        id: `douban_${item.id}`,
+        title: item.title,
+        releaseDate: item.year || ''
+      }));
     }
-  });
-  
-  if (res.data && res.data.subject_collection_items) {
-    return res.data.subject_collection_items.map(item => ({
-      id: item.id,
-      type: "link",
-      title: item.title,
-      original_language: "zh",
-      origin_country: ["CN"],
-      description: item.card_subtitle || "",
-      rating: (item.rating && item.rating.value) ? item.rating.value : 0,
-      releaseDate: item.year || "",
-      genres: item.genres || [],
-      voteCount: (item.rating && item.rating.count) ? item.rating.count : 0,
-      lastUpdate: new Date().toISOString().split('T')[0],
-      posterPath: null,
-      backdropPath: null
-    }));
-  }
+  } catch (e) {}
   return [];
 }
 
-// --- TMDB Discover ---
+// --- TMDB 列表 ---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -323,26 +310,15 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
   if (type === 'anime') {
     endpoint = '/discover/tv';
     const genreParam = params.genre || "16";
-    
     if (genreParam.includes('_')) {
-      const [genreIds, languageCode] = genreParam.split('_');
-      queryParams.with_genres = genreIds;
-      
-      if (languageCode === 'zh') {
-        queryParams.with_original_language = 'zh';
-      } else if (languageCode === 'ja') {
-        queryParams.with_original_language = 'ja';
-      } else if (languageCode === 'ko') {
-        queryParams.with_original_language = 'ko';
-      } else if (languageCode === 'fr') {
-        queryParams.with_original_language = 'fr';
-      } else if (languageCode === 'en_gb') {
-        queryParams.with_original_language = 'en';
-        queryParams.with_origin_country = 'GB';
-      } else if (languageCode === 'en') {
-        queryParams.with_original_language = 'en';
-        queryParams.with_origin_country = 'US';
-      }
+      const [g, lang] = genreParam.split('_');
+      queryParams.with_genres = g;
+      if (lang === 'zh') queryParams.with_original_language = 'zh';
+      else if (lang === 'ja') queryParams.with_original_language = 'ja';
+      else if (lang === 'ko') queryParams.with_original_language = 'ko';
+      else if (lang === 'fr') queryParams.with_original_language = 'fr';
+      else if (lang === 'en_gb') { queryParams.with_original_language = 'en'; queryParams.with_origin_country = 'GB'; }
+      else if (lang === 'en') { queryParams.with_original_language = 'en'; queryParams.with_origin_country = 'US'; }
     } else {
       queryParams.with_genres = genreParam;
     }
@@ -353,66 +329,38 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
   return await sendTmdbRequest(endpoint, queryParams, apiKey);
 }
 
-// --- TMDB 搜索（用于补全豆瓣数据）---
+// --- TMDB 搜索匹配 ---
 async function searchTmdb(keyword, mediaType, apiKey) {
   if (!keyword || !apiKey) return null;
-  
-  const yearMatch = keyword.match(/\b(19|20)\d{2}\b/);
-  const year = yearMatch ? yearMatch[0] : null;
-  const cleanTitle = keyword
-    .replace(/([（(][^）)]*[)）])/g, '')
-    .replace(/剧场版|特别篇|动态漫|中文配音|中配|粤语版|国语版/g, '')
-    .replace(/第[0-9一二三四五六七八九十]+季/g, '')
-    .trim();
-  
-  const query = {
-    query: cleanTitle,
-    language: "zh-CN",
-    page: 1
-  };
-  if (year) query.year = year;
-
-  const results = await sendTmdbRequest(`/search/${mediaType}`, query, apiKey);
-
-  if (results && results.length > 0) {
-    const exactMatch = results.find(
-      item => 
-        (item.title === cleanTitle || item.name === cleanTitle) ||
-        (item.original_title === cleanTitle || item.original_name === cleanTitle)
-    );
-    return exactMatch || results[0];
-  }
-  return null;
+  const clean = keyword.replace(/[（）()剧场版特别篇季\d]+/g, '').trim();
+  const res = await sendTmdbRequest(`/search/${mediaType}`, {
+    query: clean, language: "zh-CN"
+  }, apiKey);
+  return res?.[0] || null;
 }
 
 // --- TMDB 请求 ---
 async function sendTmdbRequest(path, params, apiKey) {
   if (!apiKey) return [];
-  
   const url = `https://api.themoviedb.org/3${path}`;
   let headers = { "Content-Type": "application/json;charset=utf-8" };
-  let finalParams = { ...params };
+  let p = { ...params };
 
   if (apiKey.length > 50) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+    headers.Authorization = `Bearer ${apiKey}`;
   } else {
-    finalParams["api_key"] = apiKey;
+    p.api_key = apiKey;
   }
 
   try {
-    const res = await Widget.http.get(url, { params: finalParams, headers: headers });
-    
-    if (res.data && res.data.results) {
+    const res = await Widget.http.get(url, { params: p, headers });
+    if (res.data?.results) {
       return res.data.results.map(item => ({
-        id: item.id,
+        id: `tmdb_${item.id}`,
         type: "tmdb",
         title: item.title || item.name,
-        original_title: item.original_title,
-        original_name: item.original_name,
-        original_language: item.original_language,
-        origin_country: item.origin_country || [],
         description: item.overview || "暂无简介",
-        posterPath: item.poster_path ? `${IMAGE_BASE}${item.poster_path}` : null,
+        posterPath: item.poster_path ? IMAGE_BASE + item.poster_path : null,
         backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/original${item.backdrop_path}` : null,
         releaseDate: item.release_date || item.first_air_date || "",
         rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
@@ -422,36 +370,23 @@ async function sendTmdbRequest(path, params, apiKey) {
         lastUpdate: item.updated_at || item.release_date || item.first_air_date || ""
       }));
     }
-  } catch (err) {
-    console.error(`TMDB 请求错误: ${err.message}`);
-  }
+  } catch (err) {}
   return [];
 }
 
-// --- 排序 ---
+// --- 统一排序 ---
 function applySorting(items, sortBy, type) {
-  if (!items || items.length === 0) return items;
-  const sortedItems = [...items];
-  
-  switch(sortBy) {
+  if (!items?.length) return [];
+  const s = [...items];
+  switch (sortBy) {
     case 'vote_average.desc':
-      sortedItems.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-      break;
+      return s.sort((a,b) => (b.rating||0)-(a.rating||0));
     case 'primary_release_date.desc':
     case 'first_air_date.desc':
-      sortedItems.sort((a, b) => new Date(b.releaseDate || 0) - new Date(a.releaseDate || 0));
-      break;
+      return s.sort((a,b) => new Date(b.releaseDate||0) - new Date(a.releaseDate||0));
     case 'updated_at.desc':
-      sortedItems.sort((a, b) => new Date(b.lastUpdate || 0) - new Date(a.lastUpdate || 0));
-      break;
-    case 'popularity.desc':
+      return s.sort((a,b) => new Date(b.lastUpdate||0) - new Date(a.lastUpdate||0));
     default:
-      sortedItems.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-      break;
+      return s.sort((a,b) => (b.popularity||0)-(a.popularity||0));
   }
-  
-  return sortedItems.map((item, index) => ({
-    ...item,
-    rank: index + 1
-  }));
 }
