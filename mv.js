@@ -1,7 +1,5 @@
 const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-// 获取今天日期（用于过滤已上线资源）
-const TODAY = new Date().toISOString().split('T')[0];
 
 var WidgetMetadata = {
   id: "movie_shows",
@@ -138,6 +136,8 @@ var WidgetMetadata = {
   ]
 };
 
+// 获取今天日期（用于过滤已上线资源）
+const TODAY = new Date().toISOString().split('T')[0];
 // 国内主流综艺平台对应的TMDB筛选条件
 const DOMESTIC_VARIETY_CONFIG = {
   platforms: [
