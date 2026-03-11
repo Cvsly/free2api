@@ -1,13 +1,16 @@
 const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
+// 获取今天日期（YYYY-MM-DD），用于过滤已上线资源
+const TODAY = new Date().toISOString().split('T')[0];
+
 var WidgetMetadata = {
   id: "movie_shows",
   title: "热门榜单 (完整版)",
-  description: "电影/剧集 豆瓣+TMDB双源合并 | 动漫/综艺 TMDB源",
+  description: "电影/剧集 豆瓣+TMDB双源合并 | 仅展示已上线资源",
   author: "crush7s",
   site: "",
-  version: "2.10.0",
+  version: "2.11.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -20,7 +23,7 @@ var WidgetMetadata = {
   modules: [
     {
       title: "热门电影",
-      description: "豆瓣 + TMDB 双源合并",
+      description: "豆瓣 + TMDB 双源合并 | 仅展示已上映资源",
       requiresWebView: false,
       functionName: "getMovies",
       cacheDuration: 3600,
@@ -32,7 +35,6 @@ var WidgetMetadata = {
           enumOptions: [
             { title: "热门优先", value: "popularity.desc" },
             { title: "高分优先", value: "vote_average.desc" },
-            // ✅ 改为「上映日期」，对应电影主发行/上线日期
             { title: "上映日期", value: "primary_release_date.desc" },
             { title: "最近更新", value: "updated_at.desc" }
           ],
@@ -43,7 +45,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门剧集",
-      description: "豆瓣 + TMDB 双源合并",
+      description: "豆瓣 + TMDB 双源合并 | 仅展示已播出资源",
       requiresWebView: false,
       functionName: "getTV",
       cacheDuration: 3600,
@@ -55,7 +57,6 @@ var WidgetMetadata = {
           enumOptions: [
             { title: "热门优先", value: "popularity.desc" },
             { title: "高分优先", value: "vote_average.desc" },
-            // ✅ 改为「上映日期」，对应剧集首播日期
             { title: "上映日期", value: "first_air_date.desc" },
             { title: "最近更新", value: "updated_at.desc" }
           ],
@@ -66,7 +67,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门动漫",
-      description: "实时动漫番剧 完整元数据",
+      description: "实时动漫番剧 | 仅展示已播出资源",
       requiresWebView: false,
       functionName: "getAnime",
       cacheDuration: 3600,
@@ -103,7 +104,7 @@ var WidgetMetadata = {
     },
     {
       title: "热门综艺",
-      description: "爱奇艺/腾讯/芒果/优酷 聚合",
+      description: "爱奇艺/腾讯/芒果/优酷 聚合 | 仅展示已播出资源",
       requiresWebView: false,
       functionName: "getDomesticVariety",
       cacheDuration: 1800,
@@ -201,7 +202,9 @@ async function fetchDomesticVariety(params = {}) {
       sort_by: sortBy,
       with_genres: config.genre,
       with_original_language: config.lang,
-      with_origin_country: config.country
+      with_origin_country: config.country,
+      // ✅ 综艺：只保留已播出内容
+      first_air_date_lte: TODAY
     };
     return sendTmdbRequest("/discover/tv", queryParams, apiKey);
   });
@@ -297,7 +300,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB 列表 ---
+// --- TMDB 列表（已添加日期过滤，只返回已上线资源）---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -308,6 +311,15 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
     include_adult: false,
     sort_by: params.sort_by || "popularity.desc"
   };
+
+  // ✅ 核心修复：只保留已上线/已播出的资源
+  if (type === 'movie') {
+    // 电影：主发行日期 ≤ 今天
+    queryParams['primary_release_date.lte'] = TODAY;
+  } else {
+    // 剧集/动漫/综艺：首播日期 ≤ 今天
+    queryParams['first_air_date.lte'] = TODAY;
+  }
 
   if (type === 'anime') {
     endpoint = '/discover/tv';
@@ -336,7 +348,10 @@ async function searchTmdb(keyword, mediaType, apiKey) {
   if (!keyword || !apiKey) return null;
   const clean = keyword.replace(/[（）()剧场版特别篇季\d]+/g, '').trim();
   const res = await sendTmdbRequest(`/search/${mediaType}`, {
-    query: clean, language: "zh-CN"
+    query: clean,
+    language: "zh-CN",
+    // ✅ 搜索时也过滤已上线资源
+    [mediaType === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte']: TODAY
   }, apiKey);
   return res?.[0] || null;
 }
