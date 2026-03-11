@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.6.0",
+  version: "2.6.1",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -246,7 +246,7 @@ async function getDataWithFallback(type, params) {
   return applySorting(items, sortBy, type);
 }
 
-// --- 豆瓣数据源 ---
+// --- 豆瓣数据源（修复：添加 type 字段）---
 async function fetchDouban(type, offset) {
   let url = "";
   const start = offset;
@@ -268,6 +268,7 @@ async function fetchDouban(type, offset) {
   if (res.data && res.data.subject_collection_items) {
     return res.data.subject_collection_items.map(item => ({
       id: item.id,
+      type: "link", // ✅ 关键修复：添加 type 字段
       title: item.title,
       original_language: "zh",
       origin_country: ["CN"],
@@ -379,7 +380,7 @@ async function sendTmdbRequest(path, params, apiKey) {
     if (res.data && res.data.results) {
       return res.data.results.map(item => ({
         id: item.id,
-        type: "tmdb",
+        type: "tmdb", // ✅ TMDB 条目保留 type
         title: item.title || item.name,
         original_title: item.original_title,
         original_language: item.original_language,
