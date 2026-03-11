@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.4.1",
+  version: "2.4.2",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -309,7 +309,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB Discover（已修复地区筛选）---
+// --- TMDB Discover（已修复：按【制作方+华语】判断国产/国外）---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -321,13 +321,16 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
     sort_by: params.sort_by || "popularity.desc"
   };
 
-  // ==================== 修复：电影/剧集 地区筛选 100% 生效 ====================
+  // ==================== 修复：按【华语+中国制作】判断地区 ====================
   if (type === 'movie' || type === 'tv') {
     const region = params.region || "all";
     if (region === "CN") {
+      // 国内：原始语言=中文 + 制作国家=中国（最精准匹配国产片）
+      queryParams.with_original_language = "zh";
       queryParams.with_origin_country = "CN";
     } else if (region === "foreign") {
-      queryParams.without_origin_country = "CN";
+      // 国外：排除所有中文影片（100% 非国产）
+      queryParams.without_original_language = "zh";
     }
   }
 
@@ -370,8 +373,7 @@ async function searchTmdb(keyword, mediaType, apiKey) {
   
   const yearMatch = keyword.match(/\b(19|20)\d{2}\b/);
   const year = yearMatch ? yearMatch[0] : null;
-  const cleanTitle = keyword
-    .replace(/([（(][^）)]*[)）])/g, '')
+  const cleanTitle = keyword.replace(/([（(][^）)]*[)）])/g, '')
     .replace(/剧场版|特别篇|动态漫|中文配音|中配|粤语版|国语版/g, '')
     .replace(/第[0-9一二三四五六七八九十]+季/g, '')
     .trim();
