@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.5.0",
+  version: "2.6.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -37,17 +37,6 @@ var WidgetMetadata = {
           ],
           default: "popularity.desc"
         },
-        {
-          name: "region",
-          title: "地区",
-          type: "enumeration",
-          enumOptions: [
-            { title: "全部", value: "all" },
-            { title: "国内电影", value: "CN" },
-            { title: "国外电影", value: "foreign" }
-          ],
-          default: "all"
-        },
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
@@ -69,17 +58,6 @@ var WidgetMetadata = {
             { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
-        },
-        {
-          name: "region",
-          title: "地区",
-          type: "enumeration",
-          enumOptions: [
-            { title: "全部", value: "all" },
-            { title: "国内剧集", value: "CN" },
-            { title: "国外剧集", value: "foreign" }
-          ],
-          default: "all"
         },
         { name: "offset", title: "位置", type: "offset" }
       ]
@@ -233,12 +211,11 @@ async function fetchDomesticVariety(params = {}) {
   return applySorting(uniqueItems, sortBy, 'variety');
 }
 
-// --- 核心逻辑：本地过滤地区，100%生效 ---
+// --- 核心逻辑 ---
 async function getDataWithFallback(type, params) {
   const apiKey = params.TMDB_API_KEY;
   const offset = Number(params.offset) || 0;
   const sortBy = params.sort_by || "popularity.desc";
-  const region = params.region || "all";
 
   let items = [];
   if (['movie', 'tv'].includes(type)) {
@@ -264,20 +241,6 @@ async function getDataWithFallback(type, params) {
     }
 
     items = await fetchTmdbDiscover(type, offset, apiKey, params);
-  }
-
-  // ==================== 关键：本地按【发行/制作方】过滤地区 ====================
-  if ((type === 'movie' || type === 'tv') && region !== 'all') {
-    items = items.filter(item => {
-      // 判定国产规则：语言是中文 或 制作国家含CN
-      const isChineseLang = (item.original_language || '').startsWith('zh');
-      const isFromCN = (item.origin_country || []).includes('CN');
-      const isDomestic = isChineseLang || isFromCN;
-
-      if (region === 'CN') return isDomestic;
-      if (region === 'foreign') return !isDomestic;
-      return true;
-    });
   }
 
   return applySorting(items, sortBy, type);
@@ -319,7 +282,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB Discover：只拉数据，不做地区筛选，交给本地处理 ---
+// --- TMDB Discover ---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
