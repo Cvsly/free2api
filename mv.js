@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "电影/剧集 豆瓣+TMDB双源合并 | 动漫/综艺 TMDB源",
   author: "crush7s",
   site: "",
-  version: "2.8.0",
+  version: "2.9.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -32,7 +32,8 @@ var WidgetMetadata = {
           enumOptions: [
             { title: "热门优先", value: "popularity.desc" },
             { title: "高分优先", value: "vote_average.desc" },
-            { title: "最新上映", value: "primary_release_date.desc" },
+            // ✅ 改为「最新上线」，对应资源首播/上线日期
+            { title: "最新上线", value: "primary_release_date.desc" },
             { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
@@ -54,6 +55,7 @@ var WidgetMetadata = {
           enumOptions: [
             { title: "热门优先", value: "popularity.desc" },
             { title: "高分优先", value: "vote_average.desc" },
+            // ✅ 保持「最新上线」，对应剧集首播日期（资源首播）
             { title: "最新上线", value: "first_air_date.desc" },
             { title: "最近更新", value: "updated_at.desc" }
           ],
