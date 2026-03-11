@@ -7,7 +7,7 @@ var WidgetMetadata = {
   description: "含电影/剧集/动漫/国内综艺",
   author: "crush7s",
   site: "",
-  version: "2.3.0",
+  version: "2.4.0",
   requiredVersion: "0.0.1",
   globalParams: [
     {
@@ -18,6 +18,7 @@ var WidgetMetadata = {
     }
   ],
   modules: [
+    // ==================== 热门电影 - 规范排序 ====================
     {
       title: "热门电影",
       description: "查看实时热门电影，支持排序",
@@ -30,10 +31,10 @@ var WidgetMetadata = {
           title: "排序方式",
           type: "enumeration",
           enumOptions: [
-            { title: "热度排行", value: "popularity.desc" },
-            { title: "评分排行", value: "vote_average.desc" },
-            { title: "上映日期", value: "release_date.desc" },
-            { title: "最近更新", value: "updated.desc" }
+            { title: "热门优先", value: "popularity.desc" },
+            { title: "高分优先", value: "vote_average.desc" },
+            { title: "最新上映", value: "primary_release_date.desc" },
+            { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
         },
@@ -51,6 +52,7 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
+    // ==================== 热门剧集 - 规范排序 ====================
     {
       title: "热门剧集",
       description: "查看实时热门剧集，支持排序",
@@ -63,10 +65,10 @@ var WidgetMetadata = {
           title: "排序方式",
           type: "enumeration",
           enumOptions: [
-            { title: "热度排行", value: "popularity.desc" },
-            { title: "评分排行", value: "vote_average.desc" },
-            { title: "上映日期", value: "first_air_date.desc" },
-            { title: "最近更新", value: "updated.desc" }
+            { title: "热门优先", value: "popularity.desc" },
+            { title: "高分优先", value: "vote_average.desc" },
+            { title: "最新上线", value: "first_air_date.desc" },
+            { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
         },
@@ -84,6 +86,7 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
+    // ==================== 热门动漫 - 规范排序 ====================
     {
       title: "热门动漫",
       description: "查看实时动漫番剧，支持排序和地区分类",
@@ -96,10 +99,10 @@ var WidgetMetadata = {
           title: "排序方式",
           type: "enumeration",
           enumOptions: [
-            { title: "热度排行", value: "popularity.desc" },
-            { title: "评分排行", value: "vote_average.desc" },
-            { title: "上映日期", value: "first_air_date.desc" },
-            { title: "最近更新", value: "updated.desc" }
+            { title: "热门优先", value: "popularity.desc" },
+            { title: "高分优先", value: "vote_average.desc" },
+            { title: "最新上线", value: "first_air_date.desc" },
+            { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
         },
@@ -121,6 +124,7 @@ var WidgetMetadata = {
         { name: "offset", title: "位置", type: "offset" }
       ]
     },
+    // ==================== 热门综艺 - 规范排序 ====================
     {
       title: "热门综艺",
       description: "聚合爱奇艺/腾讯/芒果TV/优酷综艺，TMDB匹配元数据",
@@ -146,9 +150,10 @@ var WidgetMetadata = {
           title: "排序方式",
           type: "enumeration",
           enumOptions: [
-            { title: "热度排行", value: "popularity.desc" },
-            { title: "评分排行", value: "vote_average.desc" },
-            { title: "最新上线", value: "first_air_date.desc" }
+            { title: "热门优先", value: "popularity.desc" },
+            { title: "高分优先", value: "vote_average.desc" },
+            { title: "最新上线", value: "first_air_date.desc" },
+            { title: "最近更新", value: "updated_at.desc" }
           ],
           default: "popularity.desc"
         },
@@ -172,15 +177,12 @@ const DOMESTIC_VARIETY_CONFIG = {
 async function getMovies(params = {}) {
   return await getDataWithFallback('movie', params);
 }
-
 async function getTV(params = {}) {
   return await getDataWithFallback('tv', params);
 }
-
 async function getAnime(params = {}) {
   return await getDataWithFallback('anime', params);
 }
-
 async function getDomesticVariety(params = {}) {
   return await fetchDomesticVariety(params);
 }
@@ -311,7 +313,7 @@ async function fetchDouban(type, offset) {
   return [];
 }
 
-// --- TMDB Discover（支持地区筛选 + 修复最新数据）---
+// --- TMDB Discover（规范排序字段）---
 async function fetchTmdbDiscover(type, offset, apiKey, params) {
   const page = Math.floor(offset / 20) + 1;
   let endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
@@ -319,14 +321,9 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
   let queryParams = {
     language: "zh-CN",
     page: page,
-    include_adult: false
+    include_adult: false,
+    sort_by: params.sort_by || "popularity.desc"
   };
-
-  if (params.sort_by === 'updated.desc') {
-    queryParams.sort_by = type === 'movie' ? 'primary_release_date.desc' : 'first_air_date.desc';
-  } else {
-    queryParams.sort_by = params.sort_by || "popularity.desc";
-  }
 
   // 电影 / 剧集 地区筛选
   if ((type === 'movie' || type === 'tv') && params.region) {
@@ -360,8 +357,6 @@ async function fetchTmdbDiscover(type, offset, apiKey, params) {
       } else if (languageCode === 'en') {
         queryParams.with_original_language = 'en';
         queryParams.with_origin_country = 'US';
-      } else {
-        queryParams.with_original_language = languageCode;
       }
     } else {
       queryParams.with_genres = genreParam;
@@ -409,7 +404,7 @@ async function searchTmdb(keyword, mediaType, apiKey) {
 async function sendTmdbRequest(path, params, apiKey) {
   if (!apiKey) return [];
   
-  const url = `https://api.themovdb.org/3${path}`;
+  const url = `https://api.themoviedb.org/3${path}`;
   let headers = { "Content-Type": "application/json;charset=utf-8" };
   let finalParams = { ...params };
 
@@ -474,26 +469,22 @@ async function sendTmdbRequest(path, params, apiKey) {
   return [];
 }
 
-// --- 排序 ---
+// --- 规范排序函数 ---
 function applySorting(items, sortBy, type) {
   if (!items || items.length === 0) return items;
-  
   const sortedItems = [...items];
   
   switch(sortBy) {
     case 'vote_average.desc':
       sortedItems.sort((a, b) => (b.rating || 0) - (a.rating || 0));
       break;
-      
+    case 'primary_release_date.desc':
     case 'first_air_date.desc':
-    case 'release_date.desc':
-      sortedItems.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
+      sortedItems.sort((a, b) => new Date(b.releaseDate || 0) - new Date(a.releaseDate || 0));
       break;
-      
-    case 'updated.desc':
-      sortedItems.sort((a, b) => new Date(b.lastUpdate) - new Date(a.lastUpdate));
+    case 'updated_at.desc':
+      sortedItems.sort((a, b) => new Date(b.lastUpdate || 0) - new Date(a.lastUpdate || 0));
       break;
-      
     case 'popularity.desc':
     default:
       sortedItems.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
