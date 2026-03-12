@@ -1,154 +1,393 @@
-/**
- * 全球万能影视专区 (B站 PGC 聚合版)
- * 核心逻辑：利用 Bilibili PGC 榜单接口，提供番剧、国创、影剧深度聚合
- * 聚合方式：元数据钩子匹配 (type: link + loadDetail)
- */
+const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
+const IMAGE_BASE = "https://i0.hdslb.com/bfs/archive/";
+const ERROR_POSTER = "https://via.placeholder.com/500x750?text=暂无封面";
 
-WidgetMetadata = {
-    id: "bilibili_pgc_aggregate_makka",
-    title: "国内聚合榜单",
-    description: "同步 B 站 PGC 数据，支持全网资源自动匹配",
-    author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
-    version: "3.8.0",
-    requiredVersion: "0.0.1",
-    detailCacheDuration: 86400,
-    modules: [
-        // ================= 模块 1：PGC 官方榜单 =================
+// 模块元数据
+var WidgetMetadata = {
+  id: "bilibili_pgc_rank",
+  title: "Bilibili PGC 榜单",
+  description: "B站番剧/国创/纪录片/综艺/电影/电视剧 全品类榜单，支持时间/地区筛选",
+  author: "Forward 定制版",
+  version: "1.0.0",
+  requiredVersion: "0.0.1",
+  detailCacheDuration: 300,
+  globalParams: [
+    {
+      name: "BILIBILI_COOKIE",
+      title: "Bilibili Cookie（可选）",
+      type: "input",
+      description: "部分榜单需要登录，可在浏览器复制 Cookie 粘贴，无需登录可不填"
+    }
+  ],
+  modules: [
+    {
+      title: "番剧榜单",
+      description: "Bilibili 正版番剧热度/评分/追番排行",
+      requiresWebView: false,
+      functionName: "getAnimeRank",
+      cacheDuration: 1800,
+      params: [
         {
-            title: "📺 PGC 官方榜单",
-            functionName: "loadBiliRank",
-            type: "video",
-            cacheDuration: 3600,
-            params: [
-                {
-                    name: "seasonType",
-                    title: "选择频道",
-                    type: "enumeration",
-                    value: "1",
-                    enumOptions: [
-                        { title: "🌸 番剧 (Bangumi)", value: "1" },
-                        { title: "🐉 国创 (Guochuang)", value: "4" },
-                        { title: "🎬 电影 (Movie)", value: "2" },
-                        { title: "📺 电视剧 (TV Series)", value: "5" },
-                        { title: "🎥 纪录片 (Documentary)", value: "3" }
-                    ]
-                },
-                {
-                    name: "day",
-                    title: "时间范围",
-                    type: "enumeration",
-                    value: "3",
-                    enumOptions: [
-                        { title: "🔥 三日热播榜", value: "3" },
-                        { title: "📅 一周热门榜", value: "7" }
-                    ]
-                }
-            ]
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "新番连载", value: "new" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
         },
-        // ================= 模块 2：深度专题发现 (示例) =================
         {
-            title: "🏷️ 影视分类检索",
-            functionName: "loadBiliRank", // 复用同一引擎
-            type: "video",
-            params: [
-                {
-                    name: "seasonType",
-                    title: "类型",
-                    type: "enumeration",
-                    value: "2",
-                    enumOptions: [
-                        { title: "🎬 热门电影", value: "2" },
-                        { title: "📺 热门电视剧", value: "5" }
-                    ]
-                }
-            ]
-        }
-    ]
+          name: "region",
+          title: "地区",
+          type: "enumeration",
+          enumOptions: [
+            { title: "全部", value: "" },
+            { title: "日本", value: "jp" },
+            { title: "欧美", value: "us" },
+            { title: "其他", value: "other" }
+          ],
+          default: ""
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    },
+    {
+      title: "国创榜单",
+      description: "国产动画/国漫热度/评分/追番排行",
+      requiresWebView: false,
+      functionName: "getGuochuangRank",
+      cacheDuration: 1800,
+      params: [
+        {
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "新作连载", value: "new" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    },
+    {
+      title: "纪录片榜单",
+      description: "Bilibili 正版纪录片热度/评分排行",
+      requiresWebView: false,
+      functionName: "getDocumentaryRank",
+      cacheDuration: 3600,
+      params: [
+        {
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    },
+    {
+      title: "综艺榜单",
+      description: "Bilibili 正版综艺热度/评分排行",
+      requiresWebView: false,
+      functionName: "getVarietyRank",
+      cacheDuration: 3600,
+      params: [
+        {
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    },
+    {
+      title: "电影榜单",
+      description: "Bilibili 正版电影热度/评分排行",
+      requiresWebView: false,
+      functionName: "getMovieRank",
+      cacheDuration: 3600,
+      params: [
+        {
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    },
+    {
+      title: "电视剧榜单",
+      description: "Bilibili 正版电视剧热度/评分排行",
+      requiresWebView: false,
+      functionName: "getTvSeriesRank",
+      cacheDuration: 3600,
+      params: [
+        {
+          name: "rank_type",
+          title: "榜单类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "热门排行", value: "popular" },
+            { title: "高分经典", value: "high_score" }
+          ],
+          default: "popular"
+        },
+        { name: "offset", title: "位置", type: "offset" }
+      ]
+    }
+  ]
 };
 
-// ================= [1. 列表加载核心] =================
-
-async function loadBiliRank(params) {
-    const seasonType = params.seasonType || "1";
-    const day = params.day || "3";
-    const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
-
-    try {
-        const response = await Widget.http.get(url, {
-            headers: { "Referer": "https://www.bilibili.com/" }
-        });
-
-        if (!response?.data?.result?.list) return [];
-        const list = response.data.result.list;
-
-        return list.map((item, index) => {
-            const isMovie = (seasonType === "2" || seasonType === "3");
-            const score = item.rating || "暂无评分";
-
-            return {
-                id: `bili_ss${item.season_id}`,
-                // 👉 触发聚合：type 为 link，App 会调用 loadDetail
-                type: "link", 
-                mediaType: isMovie ? "movie" : "tv",
-                title: item.title,
-                subTitle: `TOP ${index + 1} | ⭐ ${score}`,
-                coverUrl: item.cover,
-                // link 作为 loadDetail 的输入参数，传递 season_id
-                link: item.season_id.toString(),
-                rating: parseFloat(score) || 0,
-                description: `⭐ 评分: ${score}\n${item.new_ep?.index_show || ""}\n${item.desc || ""}`
-            };
-        });
-    } catch (e) {
-        return [{ id: "err", type: "text", title: "加载失败", description: e.message }];
-    }
+// ==============================================
+// 全局工具函数
+// ==============================================
+function getGlobalCookie() {
+  return Widget.globalParams?.BILIBILI_COOKIE?.trim() || "";
 }
 
-// ================= [2. 详情解析核心 (解决时间不详 & 资源聚合)] =================
+async function sendBilibiliRequest(url, params = {}) {
+  const cookie = getGlobalCookie();
+  const headers = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json",
+    "Referer": "https://www.bilibili.com/"
+  };
+  if (cookie) headers["Cookie"] = cookie;
 
-async function loadDetail(seasonId) {
-    try {
-        // 请求 B 站深度详情接口获取精准元数据
-        const apiUrl = `https://api.bilibili.com/pgc/view/web/season?season_id=${seasonId}`;
-        const res = await Widget.http.get(apiUrl, { headers: { "Referer": "https://www.bilibili.com/" } });
-        
-        if (!res?.data?.result) return null;
-        const data = res.data.result;
-
-        // 👉 修复播出时间：从详情接口获取 publish 数据
-        let formattedDate = "";
-        if (data.publish?.pub_date) {
-            formattedDate = data.publish.pub_date.substring(0, 10); // 提取 YYYY-MM-DD
-        } else if (data.publish?.release_date_show) {
-            const match = data.publish.release_date_show.match(/\d{4}-\d{2}-\d{2}/);
-            formattedDate = match ? match[0] : "";
-        }
-
-        // 构造标准元数据对象，不返回 episodeItems 以强制触发 App 自动聚合搜索
-        return {
-            id: `bili_ss${seasonId}`,
-            title: data.title,
-            type: "link",
-            link: `https://www.bilibili.com/bangumi/play/ss${seasonId}`,
-            description: data.evaluate || data.shell_desc || "暂无简介",
-            coverUrl: data.cover,
-            // 👉 极其重要：标准的 releaseDate 会让聚合搜索极其精准
-            releaseDate: formattedDate, 
-            rating: data.rating?.score || 0,
-            mediaType: data.type === 2 ? "movie" : "tv",
-            genreTitle: data.styles?.join(", ") || "影视",
-            // 选集列表 (可选，如果你想保留 B 站原片跳转则加上，想纯聚合则移除)
-            // episodeItems: [] 
-        };
-    } catch (e) {
-        console.error("Detail Error:", e);
-        return null;
+  try {
+    console.log("[B站请求] URL:", url, "参数:", params);
+    const res = await Widget.http.get(url, { params, headers });
+    if (res.data?.code === 0) {
+      return res.data.data || res.data.result || [];
+    } else {
+      throw new Error(`接口错误: ${res.data?.message || "未知错误"}`);
     }
+  } catch (err) {
+    console.error("[B站请求失败]", err);
+    throw err;
+  }
 }
 
-// ================= [3. 辅助工具] =================
+// ==============================================
+// 模块入口函数
+// ==============================================
+async function getAnimeRank(params = {}) {
+  return await fetchPgcRank("anime", params);
+}
 
-function formatCount(count) {
-    if (!count) return "0";
-    return count < 10000 ? count : (count / 10000).toFixed(1) + "万";
+async function getGuochuangRank(params = {}) {
+  return await fetchPgcRank("guochuang", params);
+}
+
+async function getDocumentaryRank(params = {}) {
+  return await fetchPgcRank("documentary", params);
+}
+
+async function getVarietyRank(params = {}) {
+  return await fetchPgcRank("variety", params);
+}
+
+async function getMovieRank(params = {}) {
+  return await fetchPgcRank("movie", params);
+}
+
+async function getTvSeriesRank(params = {}) {
+  return await fetchPgcRank("tv", params);
+}
+
+// ==============================================
+// 核心榜单获取逻辑
+// ==============================================
+async function fetchPgcRank(type, params = {}) {
+  const offset = Number(params.offset) || 0;
+  const rankType = params.rank_type || "popular";
+  const region = params.region || "";
+  const page = Math.floor(offset / 20) + 1;
+
+  try {
+    let url = "";
+    let queryParams = { page, page_size: 20 };
+
+    switch (type) {
+      case "anime":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 1; // 番剧
+        if (region) queryParams.region = region;
+        if (rankType === "new") queryParams.rank_type = 3; // 新番
+        else if (rankType === "high_score") queryParams.rank_type = 2; // 高分
+        else queryParams.rank_type = 0; // 热门
+        break;
+
+      case "guochuang":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 4; // 国创
+        if (rankType === "new") queryParams.rank_type = 3;
+        else if (rankType === "high_score") queryParams.rank_type = 2;
+        else queryParams.rank_type = 0;
+        break;
+
+      case "documentary":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 3; // 纪录片
+        queryParams.rank_type = rankType === "high_score" ? 2 : 0;
+        break;
+
+      case "variety":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 7; // 综艺
+        queryParams.rank_type = rankType === "high_score" ? 2 : 0;
+        break;
+
+      case "movie":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 2; // 电影
+        queryParams.rank_type = rankType === "high_score" ? 2 : 0;
+        break;
+
+      case "tv":
+        url = "https://api.bilibili.com/pgc/season/rank/list";
+        queryParams.season_type = 5; // 电视剧
+        queryParams.rank_type = rankType === "high_score" ? 2 : 0;
+        break;
+    }
+
+    const data = await sendBilibiliRequest(url, queryParams);
+    if (!data?.list?.length) {
+      return [createErrorItem("暂无数据", "当前筛选条件下暂无内容，请重试")];
+    }
+
+    return data.list.map((item, idx) => formatBilibiliItem(item, type, offset + idx + 1));
+  } catch (err) {
+    console.error(`[${type}榜单请求失败]`, err);
+    return [createErrorItem("数据获取失败", err.message || "网络异常，请检查Cookie或网络")];
+  }
+}
+
+// ==============================================
+// 详情页加载函数（Forward 必须实现）
+// ==============================================
+async function loadDetail(link) {
+  try {
+    const match = link.match(/bilibili:\/\/pgc\/(\d+)/);
+    if (!match) throw new Error("无效链接格式");
+    const seasonId = match[1];
+
+    const data = await sendBilibiliRequest(
+      "https://api.bilibili.com/pgc/view/web/season",
+      { season_id: seasonId }
+    );
+
+    if (!data) throw new Error("获取详情失败");
+
+    const { title, cover, rating, stat, new_ep, episodes, staff, publish } = data;
+    const desc = [
+      `评分：${rating?.score || "暂无"}（${rating?.count || 0}人评价）`,
+      `播放：${formatNumber(stat?.view || 0)}`,
+      `追番/收藏：${formatNumber(stat?.follow || 0)} / ${formatNumber(stat?.collect || 0)}`,
+      `地区：${publish?.area || "未知"}`,
+      `最新：${new_ep?.desc || "暂无更新"}`,
+      "",
+      data.evaluate || "暂无简介",
+      "",
+      staff?.creator ? `制作团队：${staff.creator.map(c => c.name).join(" / ")}` : ""
+    ].filter(Boolean).join("\n");
+
+    return {
+      id: `bili_pgc_${seasonId}`,
+      type: "tv",
+      title: title,
+      description: desc,
+      posterPath: cover || ERROR_POSTER,
+      backdropPath: cover || "",
+      mediaType: "tv",
+      releaseDate: publish?.pub_date || "",
+      rating: rating?.score ? parseFloat(rating.score) : 0,
+      tags: data.type_name ? [data.type_name] : [],
+      link: `bilibili://pgc/${seasonId}`,
+      playUrl: `https://www.bilibili.com/bangumi/play/ss${seasonId}`,
+      seasons: episodes?.map(e => ({
+        id: e.id,
+        title: e.long_title || e.title,
+        episode: e.ep_title,
+        playUrl: `https://www.bilibili.com/bangumi/play/ep${e.id}`
+      })) || []
+    };
+  } catch (err) {
+    console.error("[详情页加载失败]", err);
+    return createErrorItem("详情加载失败", err.message || "未知错误");
+  }
+}
+
+// ==============================================
+// 格式化工具函数
+// ==============================================
+function formatBilibiliItem(item, type, rank) {
+  const { title, cover, rating, stat, season_id, new_ep, publish } = item;
+  const typeLabel = {
+    anime: "番剧",
+    guochuang: "国创",
+    documentary: "纪录片",
+    variety: "综艺",
+    movie: "电影",
+    tv: "电视剧"
+  }[type] || "PGC";
+
+  return {
+    id: `bili_pgc_${season_id}`,
+    type: "tv",
+    title: title,
+    description: [
+      `#${rank} ${typeLabel}`,
+      `评分：${rating?.score || "暂无"}`,
+      new_ep?.desc ? `最新：${new_ep.desc}` : publish?.pub_date || ""
+    ].filter(Boolean).join(" · "),
+    posterPath: cover || ERROR_POSTER,
+    backdropPath: cover || "",
+    releaseDate: publish?.pub_date || "",
+    rating: rating?.score ? parseFloat(rating.score) : 0,
+    mediaType: "tv",
+    popularity: stat?.view || 0,
+    voteCount: rating?.count || 0,
+    tags: [typeLabel],
+    link: `bilibili://pgc/${season_id}`,
+    playUrl: `https://www.bilibili.com/bangumi/play/ss${season_id}`,
+    seasons: []
+  };
+}
+
+function createErrorItem(title, desc) {
+  return {
+    id: `error_${Date.now()}`,
+    type: "text",
+    title: title,
+    description: desc,
+    mediaType: "text",
+    posterPath: ERROR_POSTER,
+    link: ""
+  };
+}
+
+function formatNumber(num) {
+  if (num >= 100000000) return (num / 100000000).toFixed(1) + "亿";
+  if (num >= 10000) return (num / 10000).toFixed(1) + "万";
+  return num.toString();
 }
