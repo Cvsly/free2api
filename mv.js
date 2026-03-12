@@ -1,67 +1,54 @@
 /**
- * 全球影视专区 - 修复版
- * 修复重点：
- * 1. 解决“最新上线”分类无数据问题：增加日期上限过滤，确保只显示已上映作品。
- * 2. 增强健壮性：优化排序参数映射，防止 API 返回空列表。
+ * 国内全网影视聚合榜单 (B站原生接口版)
+ * 彻底移除 TMDB 依赖，采用 Bilibili PGC 官方接口
+ * 特点：零配置、免翻墙、加载极快、数据最符合国内口味
  */
 
-// ================= [1. 参数构造函数] =================
+// ================= [1. 参数定义] =================
+
+// B站接口不支持复杂的分页和历史排序，它直接返回当前的 Top 100 榜单
+// 所以我们将二级菜单精简到极致
 
 function getAnimeParams() {
     return [
         {
-            name: "region",
-            title: "地区选择",
+            name: "season_type",
+            title: "动漫类型",
             type: "enumeration",
-            value: "JP",
+            value: "1",
             enumOptions: [
-                { title: "🇯🇵 日本动漫", value: "JP" },
-                { title: "🇨🇳 国产动漫", value: "CN" },
-                { title: "🇺🇸 欧美动漫", value: "US" },
-                { title: "🌍 全球搜索", value: "" }
+                { title: "🇯🇵 日本番剧", value: "1" },
+                { title: "🇨🇳 国创动画", value: "4" }
             ]
-        },
-        {
-            name: "sort_by",
-            title: "排序规则",
-            type: "enumeration",
-            value: "hot",
-            enumOptions: [
-                { title: "🔥 近期热播", value: "hot" },
-                { title: "🆕 最新上线", value: "new" },
-                { title: "🏆 高分榜单", value: "top" }
-            ]
-        },
-        { name: "page", title: "Page", type: "page", startPage: 1 }
+        }
     ];
 }
 
 function getSimpleParams() {
     return [
         {
-            name: "sort_by",
-            title: "排序规则",
+            name: "time_range",
+            title: "榜单范围",
             type: "enumeration",
-            value: "hot",
+            value: "3",
             enumOptions: [
-                { title: "🔥 近期热播", value: "hot" },
-                { title: "🆕 最新上线", value: "new" },
-                { title: "🏆 高分榜单", value: "top" }
+                { title: "🔥 三日热播榜", value: "3" },
+                { title: "📅 一周热门榜", value: "7" }
             ]
-        },
-        { name: "page", title: "Page", type: "page", startPage: 1 }
+        }
     ];
 }
 
-// ================= [2. WidgetMetadata] =================
+// ================= [2. WidgetMetadata 配置] =================
 
 WidgetMetadata = {
-    id: "global_media_pro_fixed",
-    title: "全球影视探索",
-    description: "已修复最新上线排序分类无数据的问题",
+    id: "domestic_media_bilibili",
+    title: "国内热门影视",
+    description: "基于 B站官方 PGC 接口的纯正国内榜单",
     author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
-    version: "2.5.4",
+    version: "3.0.0",
     requiredVersion: "0.0.1",
+    // 移除了 TMDB_API_KEY，彻底零配置
     modules: [
         { title: "🎬 热门电影", functionName: "loadMovies", type: "video", params: getSimpleParams() },
         { title: "📺 热门剧集", functionName: "loadTV", type: "video", params: getSimpleParams() },
@@ -70,82 +57,70 @@ WidgetMetadata = {
     ]
 };
 
-// ================= [3. 处理器] =================
+// ================= [3. 业务处理器] =================
 
-async function loadMovies(params) { return await unifiedLoader("movie", params, ""); }
-async function loadTV(params) { return await unifiedLoader("tv", params, ""); }
-async function loadVariety(params) { return await unifiedLoader("variety", params, "CN"); }
-async function loadAnime(params) { return await unifiedLoader("anime", params, params.region || "JP"); }
+// B站 season_type 对应关系：1=番剧, 2=电影, 3=纪录片, 4=国创, 5=电视剧, 7=综艺
+async function loadMovies(params) { return await fetchBilibiliRank(2, params.time_range); }
+async function loadTV(params) { return await fetchBilibiliRank(5, params.time_range); }
+async function loadVariety(params) { return await fetchBilibiliRank(7, params.time_range); }
+async function loadAnime(params) { return await fetchBilibiliRank(params.season_type || 1, 3); }
 
-async function unifiedLoader(category, params, region) {
-    const sort_by = params.sort_by || "hot";
-    const page = parseInt(params.page) || 1;
-    let endpoint = "/discover/tv";
-    let extraParams = {};
+// ================= [4. 核心：Bilibili 数据抓取引擎] =================
 
-    switch(category) {
-        case "movie": endpoint = "/discover/movie"; break;
-        case "anime": extraParams.with_genres = "16"; break;
-        case "variety": extraParams.with_genres = "10764,10767"; break;
-        default: extraParams.without_genres = "16,10764,10767"; break;
-    }
-
+async function fetchBilibiliRank(seasonType, day = 3) {
+    // Bilibili PGC 影视排行的官方通用接口
+    const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
+    
     try {
-        const results = await fetchFromTmdb(endpoint, sort_by, page, region, extraParams);
-        return results.length > 0 ? results : [{ id: "empty", type: "text", title: "暂无有效数据", description: "请尝试切换排序或页码" }];
-    } catch (e) {
-        console.error("Load failed:", e);
-        return [{ id: "error", type: "text", title: "加载失败", description: "网络超时或API限制" }];
+        const response = await Widget.http.get(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.bilibili.com/"
+            }
+        });
+
+        // B站接口如果成功，code 为 0
+        if (!response || !response.data || response.data.code !== 0) {
+            throw new Error("B站接口返回异常");
+        }
+
+        const list = response.data.result.list || [];
+        if (list.length === 0) return [];
+
+        // 遵循 Forward 规范，组装 VideoItem
+        return list.map((item, index) => {
+            // 处理评分，有些新剧可能暂无评分
+            const score = item.rating ? item.rating : "暂无评分";
+            const updateStatus = item.new_ep ? item.new_ep.index_show : "已完结";
+            
+            // 匹配媒体类型标签
+            let mediaTypeTag = "🎬 电影";
+            if (seasonType === 1 || seasonType === 4) mediaTypeTag = "🎨 动漫";
+            if (seasonType === 5) mediaTypeTag = "📺 剧集";
+            if (seasonType === 7) mediaTypeTag = "💃 综艺";
+
+            return {
+                id: item.season_id.toString(),
+                type: "url", // 设为 url 类型，方便后续可能的直接解析播放
+                mediaType: seasonType === 2 ? "movie" : "tv",
+                title: item.title,
+                subTitle: `TOP ${index + 1} | ⭐ ${score}`,
+                description: `${mediaTypeTag} | ${updateStatus}\n播放量: ${formatCount(item.stat.view)}\n弹幕数: ${formatCount(item.stat.danmaku)}`,
+                coverUrl: item.cover, // B站的海报
+                videoUrl: item.url,   // 直接指向 B站播放页
+                rating: parseFloat(score) || 0
+            };
+        });
+
+    } catch (error) {
+        console.error("Bilibili 抓取失败:", error);
+        return [{ id: "err", type: "text", title: "加载失败", description: "接口访问受限，请稍后重试" }];
     }
 }
 
-// ================= [4. 核心修复逻辑] =================
-
-async function fetchFromTmdb(endpoint, sort_by, page, regionKey, extraParams) {
-    const isMovie = endpoint.includes("movie");
-    // 👉 修复关键点：获取当前日期并增加一个月作为上限，防止未来无效数据占坑
-    const now = new Date();
-    const futureLimit = new Date(now.setMonth(now.getMonth() + 1)).toISOString().split('T')[0];
-    const today = new Date().toISOString().split('T')[0];
-
-    let query = {
-        language: "zh-CN",
-        page: page,
-        include_adult: false,
-        ...extraParams
-    };
-
-    if (regionKey) query.with_origin_country = regionKey;
-
-    // 👉 排序逻辑修复：
-    if (sort_by === "new") {
-        query.sort_by = isMovie ? "primary_release_date.desc" : "first_air_date.desc";
-        // 限制只显示从过去到现在（+1月内）的内容，过滤掉那些排到 2030 年的无效数据
-        query[isMovie ? "primary_release_date.lte" : "first_air_date.lte"] = futureLimit;
-        query["vote_count.gte"] = 0; // 降低门槛以显示最新作
-    } else if (sort_by === "top") {
-        query.sort_by = "vote_average.desc";
-        query["vote_count.gte"] = isMovie ? 100 : 30;
-    } else {
-        query.sort_by = "popularity.desc";
-        query["vote_count.gte"] = 5;
-    }
-
-    const res = await Widget.tmdb.get(endpoint, { params: query });
-    
-    if (!res || !res.results) return [];
-
-    return res.results
-        .filter(item => item.poster_path) // 自动过滤掉没有海报的无效数据
-        .map(item => ({
-            id: String(item.id),
-            type: "tmdb",
-            mediaType: isMovie ? "movie" : "tv",
-            title: item.title || item.name,
-            description: item.overview || "暂无简介",
-            posterPath: item.poster_path,
-            backdropPath: item.backdrop_path,
-            rating: item.vote_average,
-            releaseDate: item.release_date || item.first_air_date
-        }));
+// 辅助函数：格式化播放量数字 (如：123456 -> 12.3万)
+function formatCount(count) {
+    if (!count) return "0";
+    if (count < 10000) return count.toString();
+    return (count / 10000).toFixed(1) + "万";
 }
