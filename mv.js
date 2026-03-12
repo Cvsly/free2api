@@ -1,136 +1,154 @@
-// ================= [1. 参数定义] =================
-
-function getRankParams() {
-    return [{
-        name: "time_range",
-        title: "榜单范围",
-        type: "enumeration",
-        value: "3",
-        enumOptions: [
-            { title: "🔥 三日热播榜", value: "3" },
-            { title: "📅 一周热门榜", value: "7" }
-        ]
-    }];
-}
-
-// ================= [2. WidgetMetadata 配置] =================
+/**
+ * 全球万能影视专区 (B站 PGC 聚合版)
+ * 核心逻辑：利用 Bilibili PGC 榜单接口，提供番剧、国创、影剧深度聚合
+ * 聚合方式：元数据钩子匹配 (type: link + loadDetail)
+ */
 
 WidgetMetadata = {
-    id: "bilibili_pgc_aggregate_v35",
+    id: "bilibili_pgc_aggregate_makka",
     title: "国内聚合榜单",
     description: "同步 B 站 PGC 数据，支持全网资源自动匹配",
     author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
-    version: "3.5.0",
-    requiredVersion: "0.0.3",
+    version: "3.8.0",
+    requiredVersion: "0.0.1",
+    detailCacheDuration: 86400,
     modules: [
-        { title: "🌸 番剧", functionName: "loadBangumi", type: "video", params: getRankParams() },
-        { title: "🐉 国创", functionName: "loadGuochuang", type: "video", params: getRankParams() },
-        { title: "🎬 电影", functionName: "loadMovie", type: "video", params: getRankParams() },
-        { title: "📺 电视剧", functionName: "loadTV", type: "video", params: getRankParams() },
-        { title: "🎥 纪录片", functionName: "loadDocumentary", type: "video", params: getRankParams() }
+        // ================= 模块 1：PGC 官方榜单 =================
+        {
+            title: "📺 PGC 官方榜单",
+            functionName: "loadBiliRank",
+            type: "video",
+            cacheDuration: 3600,
+            params: [
+                {
+                    name: "seasonType",
+                    title: "选择频道",
+                    type: "enumeration",
+                    value: "1",
+                    enumOptions: [
+                        { title: "🌸 番剧 (Bangumi)", value: "1" },
+                        { title: "🐉 国创 (Guochuang)", value: "4" },
+                        { title: "🎬 电影 (Movie)", value: "2" },
+                        { title: "📺 电视剧 (TV Series)", value: "5" },
+                        { title: "🎥 纪录片 (Documentary)", value: "3" }
+                    ]
+                },
+                {
+                    name: "day",
+                    title: "时间范围",
+                    type: "enumeration",
+                    value: "3",
+                    enumOptions: [
+                        { title: "🔥 三日热播榜", value: "3" },
+                        { title: "📅 一周热门榜", value: "7" }
+                    ]
+                }
+            ]
+        },
+        // ================= 模块 2：深度专题发现 (示例) =================
+        {
+            title: "🏷️ 影视分类检索",
+            functionName: "loadBiliRank", // 复用同一引擎
+            type: "video",
+            params: [
+                {
+                    name: "seasonType",
+                    title: "类型",
+                    type: "enumeration",
+                    value: "2",
+                    enumOptions: [
+                        { title: "🎬 热门电影", value: "2" },
+                        { title: "📺 热门电视剧", value: "5" }
+                    ]
+                }
+            ]
+        }
     ]
 };
 
-// ================= [3. 处理器] =================
+// ================= [1. 列表加载核心] =================
 
-async function loadBangumi(params) { return await fetchBilibiliRank(1, params.time_range); }
-async function loadMovie(params) { return await fetchBilibiliRank(2, params.time_range); }
-async function loadDocumentary(params) { return await fetchBilibiliRank(3, params.time_range); }
-async function loadGuochuang(params) { return await fetchBilibiliRank(4, params.time_range); }
-async function loadTV(params) { return await fetchBilibiliRank(5, params.time_range); }
-
-// ================= [4. 聚合引擎逻辑 - 优化版] =================
-
-async function fetchBilibiliRank(seasonType, day = 3) {
+async function loadBiliRank(params) {
+    const seasonType = params.seasonType || "1";
+    const day = params.day || "3";
     const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
-    
+
     try {
         const response = await Widget.http.get(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": "https://www.bilibili.com/"
-            }
+            headers: { "Referer": "https://www.bilibili.com/" }
         });
 
-        if (!response || !response.data || response.data.code !== 0) throw new Error("B站接口异常");
+        if (!response?.data?.result?.list) return [];
+        const list = response.data.result.list;
 
-        const list = response.data.result.list || [];
-        
         return list.map((item, index) => {
-            const score = item.rating ? item.rating : "暂无评分";
-            const updateStatus = item.new_ep ? item.new_ep.index_show : "已完结";
-            
-            // 【修复：播出时间】多重探测
-            let rawTime = item.pub_date || item.pub_time || item.release_date;
-            let pubDateStr = "近期播出";
-            if (rawTime) {
-                if (!isNaN(rawTime) && String(rawTime).length <= 10) {
-                    pubDateStr = formatDate(rawTime);
-                } else {
-                    pubDateStr = String(rawTime).substring(0, 10);
-                }
-            }
-
-            const isMovie = (seasonType === 2 || seasonType === 3);
+            const isMovie = (seasonType === "2" || seasonType === "3");
+            const score = item.rating || "暂无评分";
 
             return {
-                id: `bili_${item.season_id}`,
-                
-                // ✅ 【聚合核心 1】type 必须为 "video"，让 App 识别为可播放内容
-                type: "video", 
-                
-                // ✅ 【聚合核心 2】严格标准 mediaType
+                id: `bili_ss${item.season_id}`,
+                // 👉 触发聚合：type 为 link，App 会调用 loadDetail
+                type: "link", 
                 mediaType: isMovie ? "movie" : "tv",
-                
                 title: item.title,
                 subTitle: `TOP ${index + 1} | ⭐ ${score}`,
-                
-                // ✅ 【聚合核心 3】releaseDate 必须是 YYYY-MM-DD 格式，辅助精确匹配
-                releaseDate: pubDateStr,
-                
-                description: `📅 播出时间: ${pubDateStr}\n${updateStatus} | ▶ 播放: ${formatCount(item.stat.view)}\n简介: ${item.desc || "暂无"}`,
-                
                 coverUrl: item.cover,
-                
-                // ✅ 【聚合核心 4】link 改为 title，让 App 用标题+年份去全网搜索资源
-                link: item.title, 
-                
-                // ✅ 【聚合核心 5】rating 必须是数字，便于聚合插件排序
+                // link 作为 loadDetail 的输入参数，传递 season_id
+                link: item.season_id.toString(),
                 rating: parseFloat(score) || 0,
-
-                // ✅ 【聚合核心 6】额外注入 originalTitle，部分聚合引擎会优先匹配原始标题
-                originalTitle: item.origin_name || item.title,
-                
-                // ✅ 【聚合核心 7】year 字段，部分聚合插件需要年份辅助匹配
-                year: pubDateStr.split("-")[0] || ""
+                description: `⭐ 评分: ${score}\n${item.new_ep?.index_show || ""}\n${item.desc || ""}`
             };
         });
-
-    } catch (error) {
-        return [{ id: "err", type: "text", title: "加载失败", description: error.message }];
-    }
-}
-
-/**
- * 格式化时间戳 (修复秒级时间戳显示问题)
- */
-function formatDate(ts) {
-    try {
-        const date = new Date(Number(ts) * 1000);
-        const y = date.getFullYear();
-        const m = (date.getMonth() + 1).toString().padStart(2, '0');
-        const d = date.getDate().toString().padStart(2, '0');
-        return `${y}-${m}-${d}`;
     } catch (e) {
-        return "时间待定";
+        return [{ id: "err", type: "text", title: "加载失败", description: e.message }];
     }
 }
 
-/**
- * 格式化播放量
- */
+// ================= [2. 详情解析核心 (解决时间不详 & 资源聚合)] =================
+
+async function loadDetail(seasonId) {
+    try {
+        // 请求 B 站深度详情接口获取精准元数据
+        const apiUrl = `https://api.bilibili.com/pgc/view/web/season?season_id=${seasonId}`;
+        const res = await Widget.http.get(apiUrl, { headers: { "Referer": "https://www.bilibili.com/" } });
+        
+        if (!res?.data?.result) return null;
+        const data = res.data.result;
+
+        // 👉 修复播出时间：从详情接口获取 publish 数据
+        let formattedDate = "";
+        if (data.publish?.pub_date) {
+            formattedDate = data.publish.pub_date.substring(0, 10); // 提取 YYYY-MM-DD
+        } else if (data.publish?.release_date_show) {
+            const match = data.publish.release_date_show.match(/\d{4}-\d{2}-\d{2}/);
+            formattedDate = match ? match[0] : "";
+        }
+
+        // 构造标准元数据对象，不返回 episodeItems 以强制触发 App 自动聚合搜索
+        return {
+            id: `bili_ss${seasonId}`,
+            title: data.title,
+            type: "link",
+            link: `https://www.bilibili.com/bangumi/play/ss${seasonId}`,
+            description: data.evaluate || data.shell_desc || "暂无简介",
+            coverUrl: data.cover,
+            // 👉 极其重要：标准的 releaseDate 会让聚合搜索极其精准
+            releaseDate: formattedDate, 
+            rating: data.rating?.score || 0,
+            mediaType: data.type === 2 ? "movie" : "tv",
+            genreTitle: data.styles?.join(", ") || "影视",
+            // 选集列表 (可选，如果你想保留 B 站原片跳转则加上，想纯聚合则移除)
+            // episodeItems: [] 
+        };
+    } catch (e) {
+        console.error("Detail Error:", e);
+        return null;
+    }
+}
+
+// ================= [3. 辅助工具] =================
+
 function formatCount(count) {
     if (!count) return "0";
-    if (count < 10000) return count.toString();
-    return (count / 10000).toFixed(1) + "万";
+    return count < 10000 ? count : (count / 10000).toFixed(1) + "万";
 }
