@@ -1,17 +1,17 @@
 const WidgetMetadata = {
-  id: "rss.test.mini",
-  title: "RSS极简测试",
-  author: "test",
-  version: "1.0.0",
-  requiredVersion: "1.0.0",
+  id: "rss.video.base",
+  title: "RSS视频订阅",
+  author: "user",
+  version: "1.0",
+  requiredVersion: "1.0",
   modules: [
     {
-      title: "RSS订阅",
-      functionName: "loadData",
+      title: "订阅源",
+      functionName: "load",
       cacheDuration: 60,
       params: [
         {
-          name: "rssUrl",
+          name: "url",
           title: "RSS地址",
           type: "input",
           required: true
@@ -19,17 +19,17 @@ const WidgetMetadata = {
       ]
     }
   ]
-};
+}
 
-async function loadData(params) {
+async function load(params) {
   return [
     {
-      id: "test1",
+      id: "rss-1",
       type: "url",
       mediaType: "movie",
       title: "测试视频",
       videoUrl: "https://www.baidu.com",
       playerType: "system"
     }
-  ];
+  ]
 }
