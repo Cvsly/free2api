@@ -1,12 +1,10 @@
 /**
- * 国内全网影视榜单 (B站 PGC 规范版)
- * 严格对标 Bilibili 官方 PGC 榜单分类
- * 包含：番剧、国创、电影、电视剧、纪录片
+ * B站 PGC 榜单 (B站 PGC 规范版)
+ * 修复：新增播出时间显示
  */
 
 // ================= [1. 参数定义] =================
 
-// 所有榜单共用简单的日期参数
 function getRankParams() {
     return [
         {
@@ -25,11 +23,11 @@ function getRankParams() {
 // ================= [2. WidgetMetadata 配置] =================
 
 WidgetMetadata = {
-    id: "bilibili_pgc_rank_v3",
+    id: "bilibili_pgc_full_v32",
     title: "B站 PGC 榜单",
-    description: "同步哔哩哔哩官方番剧、国创、影视热播排行",
+    description: "同步 B 站官方影视排行",
     author: "crush7s",
-    version: "3.1.0",
+    version: "3.2.0",
     requiredVersion: "0.0.1",
     modules: [
         { title: "🌸 番剧", functionName: "loadBangumi", type: "video", params: getRankParams() },
@@ -42,57 +40,49 @@ WidgetMetadata = {
 
 // ================= [3. 业务处理器] =================
 
-// B站 season_type 对应关系：1=番剧, 2=电影, 3=纪录片, 4=国创, 5=电视剧
 async function loadBangumi(params) { return await fetchBilibiliRank(1, params.time_range); }
 async function loadMovie(params) { return await fetchBilibiliRank(2, params.time_range); }
 async function loadDocumentary(params) { return await fetchBilibiliRank(3, params.time_range); }
 async function loadGuochuang(params) { return await fetchBilibiliRank(4, params.time_range); }
 async function loadTV(params) { return await fetchBilibiliRank(5, params.time_range); }
 
-// ================= [4. 核心：Bilibili 数据抓取引擎] =================
+// ================= [4. 核心：数据抓取与时间处理] =================
 
 async function fetchBilibiliRank(seasonType, day = 3) {
-    // Bilibili PGC 影视排行的官方通用接口
     const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
     
     try {
         const response = await Widget.http.get(url, {
             headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://www.bilibili.com/"
             }
         });
 
-        // B站接口如果成功，code 为 0
         if (!response || !response.data || response.data.code !== 0) {
             throw new Error("接口返回异常");
         }
 
         const list = response.data.result.list || [];
-        if (list.length === 0) return [];
-
-        // 遵循 Forward 规范，组装 VideoItem
+        
         return list.map((item, index) => {
-            // 处理评分，有些新剧可能暂无评分
             const score = item.rating ? item.rating : "暂无评分";
             const updateStatus = item.new_ep ? item.new_ep.index_show : "已完结";
             
-            // 匹配媒体类型标签
-            let mediaTypeTag = "影视";
-            if (seasonType === 1) mediaTypeTag = "🌸 番剧";
-            if (seasonType === 2) mediaTypeTag = "🎬 电影";
-            if (seasonType === 3) mediaTypeTag = "🎥 纪录片";
-            if (seasonType === 4) mediaTypeTag = "🐉 国创";
-            if (seasonType === 5) mediaTypeTag = "📺 电视剧";
+            // 👉 时间处理：B站返回的是 Unix 时间戳 (单位：秒)
+            const pubDateStr = item.pub_date ? formatDate(item.pub_date) : "未知时间";
 
             return {
                 id: item.season_id.toString(),
-                type: "url", // 设为 url 类型，允许以后如果有播放插件可以直接跳转
+                type: "url",
                 mediaType: (seasonType === 2 || seasonType === 3) ? "movie" : "tv",
                 title: item.title,
+                // 1. subTitle 显示评分和排名
                 subTitle: `TOP ${index + 1} | ⭐ ${score}`,
-                // 简介中加入 B站特有的播放量和弹幕数
-                description: `${mediaTypeTag} | ${updateStatus}\n▶ 播放: ${formatCount(item.stat.view)} | 💬 弹幕: ${formatCount(item.stat.danmaku)}\n${item.desc || ""}`,
+                // 2. releaseDate 字段会被 App 识别并在封面或详情位置展示播出日期
+                releaseDate: pubDateStr,
+                // 3. description 加入播出时间显示，方便一眼看到
+                description: `📅 播出时间: ${pubDateStr}\n${updateStatus} | ▶ 播放: ${formatCount(item.stat.view)}\n${item.desc || ""}`,
                 coverUrl: item.cover,
                 videoUrl: item.url,
                 rating: parseFloat(score) || 0
@@ -100,12 +90,24 @@ async function fetchBilibiliRank(seasonType, day = 3) {
         });
 
     } catch (error) {
-        console.error("Bilibili 抓取失败:", error);
-        return [{ id: "err", type: "text", title: "加载失败", description: "接口访问受限或网络异常" }];
+        return [{ id: "err", type: "text", title: "加载失败", description: error.message }];
     }
 }
 
-// 辅助函数：格式化播放量数字 (如：123456 -> 12.3万)
+/**
+ * 格式化时间戳
+ */
+function formatDate(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const y = date.getFullYear();
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+/**
+ * 格式化播放量
+ */
 function formatCount(count) {
     if (!count) return "0";
     if (count < 10000) return count.toString();
