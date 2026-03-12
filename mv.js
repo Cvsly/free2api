@@ -28,7 +28,7 @@ WidgetMetadata = {
     id: "bilibili_pgc_rank_v3",
     title: "B站 PGC 榜单",
     description: "同步哔哩哔哩官方番剧、国创、影视热播排行",
-    author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
+    author: "crush7s",
     version: "3.1.0",
     requiredVersion: "0.0.1",
     modules: [
