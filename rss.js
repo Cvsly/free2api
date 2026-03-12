@@ -1,106 +1,157 @@
 // ==============================
-// RSS 视频订阅源 通用自由订阅模块
-// 支持：任意标准视频 RSS / Atom 订阅
+// RSS 视频订阅源模块 - 严格规范版
+// 修复点：规范元数据、标准化返回、增强错误处理
 // ==============================
 const WidgetMetadata = {
-  id: "rss.video.feed.free",
-  title: "RSS 视频自由订阅",
+  id: "rss.video.subscription", // 唯一ID，避免重复
+  title: "RSS视频订阅",
   author: "ForwardDev",
-  version: "1.0.0",
-  requiredVersion: "1.0.0",
-  detailCacheDuration: 180,
+  version: "1.1.0", // 版本号递增
+  requiredVersion: "1.0.0", // 兼容最低版本
+  detailCacheDuration: 300, // 缓存5分钟
 
-  // 模块入口：支持用户自由输入 RSS 地址
+  // 核心模块配置：严格遵循参数规范
   modules: [
     {
-      title: "RSS 视频订阅",
-      functionName: "loadRssVideoFeed",
+      title: "加载RSS订阅源",
+      functionName: "loadRssFeed", // 函数名与下方定义一致
       cacheDuration: 300,
       params: [
         {
           name: "rssUrl",
-          title: "RSS 订阅地址",
+          title: "RSS订阅地址",
           type: "input",
-          defaultValue: "",
-          placeholder: "输入视频 RSS/Atom 地址",
+          defaultValue: "https://example.com/feed",
+          placeholder: "输入标准RSS/Atom订阅地址",
           required: true
         }
       ]
     }
-  ]
+  ],
+
+  // 可选：搜索配置（如果需要搜索功能）
+  search: {
+    title: "搜索RSS源",
+    functionName: "searchRssFeed",
+    params: [
+      {
+        name: "keyword",
+        title: "搜索关键词",
+        type: "input",
+        required: true
+      }
+    ]
+  }
 };
 
 /**
- * 加载并解析通用 RSS 视频订阅源
- * @param {Object} params - { rssUrl }
- * @returns {Array} Forward 标准视频列表
+ * 核心加载函数：与元数据functionName完全一致
+ * @param {Object} params - 传入参数 { rssUrl }
+ * @returns {Array} Forward标准视频列表数据
  */
-async function loadRssVideoFeed(params) {
+async function loadRssFeed(params) {
   try {
+    // 1. 严格参数校验
     const { rssUrl } = params;
-
-    // 1. 参数校验
-    if (!rssUrl || !rssUrl.startsWith("http")) {
-      throw new Error("请输入有效的 RSS 地址");
+    if (!rssUrl || !/^https?:\/\//.test(rssUrl)) {
+      throw new Error("❌ 请输入有效的HTTP/HTTPS地址");
     }
 
-    // 2. 请求 RSS
-    const resp = await Widget.http.get(rssUrl, {
+    // 2. 增强请求配置：避免被拦截
+    const response = await Widget.http.get(rssUrl, {
       headers: {
-        "User-Agent": "Forward/RSS"
-      }
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/xml, application/atom+xml, text/xml, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9"
+      },
+      timeout: 10000 // 10秒超时
     });
 
-    if (!resp || !resp.data) {
-      throw new Error("RSS 源请求失败");
+    // 3. 响应状态校验
+    if (!response || response.statusCode !== 200) {
+      throw new Error(`❌ 请求失败，状态码：${response?.statusCode || 0}`);
     }
 
-    const xml = resp.data;
-    const $ = Widget.html.load(xml);
-    const items = [];
+    if (!response.data || response.data.trim() === "") {
+      throw new Error("❌ 未获取到任何数据，请检查订阅地址");
+    }
 
-    // 3. 通用 RSS <item> 解析（兼容绝大多数 RSS/Atom）
-    $("item, entry").each((i, el) => {
-      const $item = $(el);
+    const xmlData = response.data;
+    const $ = Widget.html.load(xmlData);
+    const videoItems = [];
 
-      // 标题
-      const title = $item.find("title").text().trim() || "无标题";
-      // 链接
-      const link =
-        $item.find("link").text().trim() ||
-        $item.find("link").attr("href") ||
-        "";
-      // 发布时间
-      const date = $item.find("pubDate, updated").text().trim();
-      // 视频封面（通用 RSS 媒体缩略图）
-      const thumb =
-        $item.find("media\\:thumbnail, thumbnail").attr("url") ||
-        $item.find("image, img").attr("src") ||
-        "";
-      // 视频直链（ enclosure 是 RSS 标准视频/文件标签）
-      const videoUrl =
-        $item.find("enclosure").attr("url") ||
-        $item.find("media\\:content, content").attr("url") ||
-        link;
-
-      if (!link) return;
-
-      items.push({
-        id: `rss.${i}.${link.slice(-20)}`,
-        type: "url",
-        mediaType: "movie", // 统一按视频处理
-        title: title,
-        posterPath: thumb,
-        videoUrl: videoUrl,
-        description: date ? `发布于：${date}` : undefined,
-        playerType: "system"
-      });
+    // 4. 通用RSS/Atom解析：兼容两种格式
+    // 处理RSS 2.0格式
+    $("item").each((index, element) => {
+      videoItems.push(parseRssItem($(element), "rss"));
     });
 
-    return items;
+    // 处理Atom格式
+    $("entry").each((index, element) => {
+      videoItems.push(parseRssItem($(element), "atom"));
+    });
 
-  } catch (err) {
-    console.error("[RSS解析错误]", err);
-    throw new Error(`RSS 加载失败：${err.message}`);
+    // 5. 空数据处理
+    if (videoItems.length === 0) {
+      throw new Error("❌ 未解析到任何视频条目，请检查RSS内容");
+    }
+
+    return videoItems;
+
+  } catch (error) {
+    console.error("[RSS模块错误]", error.message);
+    // 抛出明确错误，方便Forward App提示
+  throw new Error(`📥 读取失败：${error.message}`);
   }
+}
+
+/**
+ * 辅助函数：解析单个RSS/Atom条目
+ * @param {CheerioElement} item - 单个条目元素
+ * @param {String} format - 格式类型 rss/atom
+ * @returns {Object} Forward标准视频对象
+ */
+function parseRssItem(item, format) {
+  // 基础信息解析
+  const title = item.find("title").text().trim() || "未知标题";
+  let link = item.find("link").text().trim() || item.find("link").attr("href") || "";
+  const pubDate = item.find("pubDate, updated").text().trim();
+  const thumbnail = item.find("media\\:thumbnail").attr("url") || 
+                    item.find("thumbnail").attr("url") || 
+                    item.find("image").attr("href") || 
+                    item.find("img").attr("src") || "";
+  // 视频直链解析
+  const enclosure = item.find("enclosure");
+  let videoUrl = enclosure.attr("url") || "";
+  
+  // 如果没有直链，用详情页链接替代
+  if (!videoUrl && link) {
+    videoUrl = link;
+  }
+
+  // 标准Forward视频对象结构（必填项完整）
+  return {
+    id: `rss.item.${Date.now()}.${Math.floor(Math.random() * 1000)}`, // 唯一ID
+    type: "url", // 固定值：url/douban/imdb/tmdb
+    mediaType: "movie", // 固定值：movie/tv
+    title: title,
+    posterPath: thumbnail,
+    videoUrl: videoUrl,
+    description: pubDate ? `发布时间：${pubDate}` : undefined,
+    rating: undefined, // 可选：评分
+    backdropPath: undefined, // 可选：背景图
+    playerType: "system" // 固定值：system/app
+  };
+}
+
+/**
+ * 搜索函数（可选）
+ */
+async function searchRssFeed(params) {
+  const { keyword } = params;
+  // 简单搜索：通过关键词过滤标题
+  const allItems = await loadRssFeed({ rssUrl: params.rssUrl });
+  return allItems.filter(item => 
+    item.title.toLowerCase().includes(keyword.toLowerCase())
+  );
 }
