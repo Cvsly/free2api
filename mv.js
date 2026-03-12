@@ -1,143 +1,123 @@
 /**
- * 国内影视榜单 - 极致聚合版
- * 1. 深度优化资源聚合：通过注入 link 和 type 让 App 自动跨插件搜索资源
- * 2. 完美修复时间显示：采用多级字段探测逻辑
+ * 全球影视榜单 - B站 PGC 聚合优化版
+ * 结构参考：Globalseries.js
  */
 
-// ================= [1. 参数定义] =================
-
-function getRankParams() {
-    return [{
-        name: "time_range",
-        title: "榜单范围",
-        type: "enumeration",
-        value: "3",
-        enumOptions: [
-            { title: "🔥 三日热播榜", value: "3" },
-            { title: "📅 一周热门榜", value: "7" }
-        ]
-    }];
-}
-
-// ================= [2. WidgetMetadata 配置] =================
+// ================= [1. WidgetMetadata] =================
 
 WidgetMetadata = {
-    id: "bilibili_pgc_aggregate_v34",
+    id: "bilibili_standard_aggregate",
     title: "国内聚合榜单",
-    description: "同步 B 站 PGC 数据，支持全网资源自动匹配",
+    description: "同步 B 站 PGC 榜单，支持详情页深度解析与资源聚合",
     author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
-    version: "3.4.0",
-    requiredVersion: "0.0.3",
+    version: "3.6.0",
+    requiredVersion: "0.0.1",
+    // 关键配置：详情缓存时间
+    detailCacheDuration: 86400, 
+    
     modules: [
-        { title: "🌸 番剧", functionName: "loadBangumi", type: "video", params: getRankParams() },
-        { title: "🐉 国创", functionName: "loadGuochuang", type: "video", params: getRankParams() },
-        { title: "🎬 电影", functionName: "loadMovie", type: "video", params: getRankParams() },
-        { title: "📺 电视剧", functionName: "loadTV", type: "video", params: getRankParams() },
-        { title: "🎥 纪录片", functionName: "loadDocumentary", type: "video", params: getRankParams() }
+        { title: "🌸 番剧", functionName: "loadBangumi", type: "video", params: getParams() },
+        { title: "🐉 国创", functionName: "loadGuochuang", type: "video", params: getParams() },
+        { title: "🎬 电影", functionName: "loadMovie", type: "video", params: getParams() },
+        { title: "📺 电视剧", functionName: "loadTV", type: "video", params: getParams() },
+        { title: "🎥 纪录片", functionName: "loadDocumentary", type: "video", params: getParams() }
     ]
 };
 
-// ================= [3. 处理器] =================
+function getParams() {
+    return [{
+        name: "day", title: "榜单时间", type: "enumeration", value: "3",
+        enumOptions: [{ title: "三日热播", value: "3" }, { title: "一周热门", value: "7" }]
+    }];
+}
 
-async function loadBangumi(params) { return await fetchBilibiliRank(1, params.time_range); }
-async function loadMovie(params) { return await fetchBilibiliRank(2, params.time_range); }
-async function loadDocumentary(params) { return await fetchBilibiliRank(3, params.time_range); }
-async function loadGuochuang(params) { return await fetchBilibiliRank(4, params.time_range); }
-async function loadTV(params) { return await fetchBilibiliRank(5, params.time_range); }
+// ================= [2. 列表处理器 (List Handlers)] =================
 
-// ================= [4. 聚合引擎逻辑] =================
+async function loadBangumi(p) { return await fetchList(1, p.day); }
+async function loadMovie(p) { return await fetchList(2, p.day); }
+async function loadDocumentary(p) { return await fetchList(3, p.day); }
+async function loadGuochuang(p) { return await fetchList(4, p.day); }
+async function loadTV(p) { return await fetchList(5, p.day); }
 
-async function fetchBilibiliRank(seasonType, day = 3) {
+async function fetchList(seasonType, day) {
     const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
+    const res = await Widget.http.get(url, { headers: { "Referer": "https://www.bilibili.com/" } });
     
+    if (!res?.data?.result?.list) return [];
+
+    return res.data.result.list.map(item => ({
+        id: `bili_ss${item.season_id}`, // 规范 ID 格式
+        type: "link",                   // 必须为 link 才能触发 loadDetail
+        title: item.title,
+        subTitle: item.rating ? `⭐ ${item.rating}` : "暂无评分",
+        coverUrl: item.cover,
+        // link 必须是唯一的，用于传递给 loadDetail
+        link: `https://www.bilibili.com/bangumi/play/ss${item.season_id}`,
+        mediaType: (seasonType === 2 || seasonType === 3) ? "movie" : "tv"
+    }));
+}
+
+// ================= [3. 详情处理器 (Detail Handler) - 聚合核心] =================
+
+/**
+ * 对应 Globalseries.js 中的 loadDetail
+ * 当用户点击列表项时，App 会调用此函数
+ */
+async function loadDetail(link) {
     try {
-        const response = await Widget.http.get(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": "https://www.bilibili.com/"
-            }
-        });
+        // 从链接中提取 season_id
+        const seasonId = link.match(/ss(\d+)/)?.[1];
+        if (!seasonId) return null;
 
-        if (!response || !response.data || response.data.code !== 0) throw new Error("B站接口异常");
-
-        const list = response.data.result.list || [];
+        // 调用 B 站 PGC 详情接口获取深度元数据
+        const apiUrl = `https://api.bilibili.com/pgc/view/web/season?season_id=${seasonId}`;
+        const res = await Widget.http.get(apiUrl, { headers: { "Referer": "https://www.bilibili.com/" } });
         
-        return list.map((item, index) => {
-            const score = item.rating ? item.rating : "暂无评分";
-            const updateStatus = item.new_ep ? item.new_ep.index_show : "已完结";
+        if (!res?.data?.result) return null;
+        const data = res.data.result;
+
+        // 👉 修复播出时间：优先使用发布时间
+        const pubDate = data.publish?.pub_date || data.publish?.release_date_show || "";
+
+        // 构造标准的详情对象
+        return {
+            id: `bili_ss${seasonId}`,
+            title: data.title,
+            type: "link",
+            link: link,
+            description: data.evaluate || data.shell_desc || "暂无简介",
+            coverUrl: data.cover,
+            releaseDate: pubDate.substring(0, 10), // 确保格式为 YYYY-MM-DD
+            rating: data.rating?.score || 0,
+            mediaType: data.type === 2 ? "movie" : "tv",
             
-            // 👉 【修复：播出时间】多重探测
-            // B站接口字段差异大，依次检测 pub_date -> pub_time -> release_date
-            let rawTime = item.pub_date || item.pub_time || item.release_date;
-            let pubDateStr = "近期播出";
-            if (rawTime) {
-                // 如果是纯数字（秒级时间戳）
-                if (!isNaN(rawTime) && String(rawTime).length <= 10) {
-                    pubDateStr = formatDate(rawTime);
-                } else {
-                    // 如果已经是字符串，截取前10位 (YYYY-MM-DD)
-                    pubDateStr = String(rawTime).substring(0, 10);
-                }
-            }
-
-            // 判断媒体类型
-            const isMovie = (seasonType === 2 || seasonType === 3);
-
-            return {
-                id: `bili_${item.season_id}`,
-                
-                // 👉 【聚合核心 1】type 设为 link
-                type: "link", 
-                
-                // 👉 【聚合核心 2】注入标准 mediaType
-                mediaType: isMovie ? "movie" : "tv",
-                
-                title: item.title,
-                subTitle: `TOP ${index + 1} | ⭐ ${score}`,
-                
-                // 👉 【聚合核心 3】注入 releaseDate 辅助匹配
-                releaseDate: pubDateStr,
-                
-                description: `📅 播出时间: ${pubDateStr}\n${updateStatus} | ▶ 播放: ${formatCount(item.stat.view)}\n简介: ${item.desc || "暂无"}`,
-                
-                coverUrl: item.cover,
-                
-                // 👉 【聚合核心 4】注入 link，这是 App 跨插件搜索的源地址
-                link: item.url, 
-                
-                rating: parseFloat(score) || 0,
-
-                // 👉 【聚合核心 5】如果存在豆瓣 ID（虽然榜单接口不直接提供，但注入此结构可提升匹配成功率）
-                // 某些高级聚合插件会根据 title + releaseDate 在后台自动补全豆瓣 ID
-                doubanId: "" 
-            };
-        });
-
-    } catch (error) {
-        return [{ id: "err", type: "text", title: "加载失败", description: error.message }];
-    }
-}
-
-/**
- * 格式化时间戳 (修复秒级时间戳显示问题)
- */
-function formatDate(ts) {
-    try {
-        const date = new Date(Number(ts) * 1000);
-        const y = date.getFullYear();
-        const m = (date.getMonth() + 1).toString().padStart(2, '0');
-        const d = date.getDate().toString().padStart(2, '0');
-        return `${y}-${m}-${d}`;
+            // 👉 聚合关键：注入豆瓣或相关信息（如果存在）
+            // B 站有时在描述里会提到豆瓣评分，可以通过正则尝试匹配（可选）
+            
+            // 选集列表：让详情页可以直接看到并点击播放
+            episodeItems: data.episodes?.map(ep => ({
+                id: ep.id.toString(),
+                title: ep.share_copy || `第 ${ep.index} 话`,
+                type: "url",
+                videoUrl: ep.link
+            })) || [],
+            
+            // 关联推荐
+            relatedItems: data.areas?.map(area => ({
+                id: `area_${area.id}`,
+                type: "text",
+                title: `地区: ${area.name}`
+            })) || []
+        };
     } catch (e) {
-        return "时间待定";
+        console.error("Detail Load Error:", e);
+        return null;
     }
 }
 
-/**
- * 格式化播放量
- */
+// ================= [4. 辅助函数] =================
+
 function formatCount(count) {
     if (!count) return "0";
-    if (count < 10000) return count.toString();
-    return (count / 10000).toFixed(1) + "万";
+    return count < 10000 ? count : (count / 10000).toFixed(1) + "万";
 }
