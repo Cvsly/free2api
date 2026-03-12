@@ -1,30 +1,13 @@
 /**
- * 国内全网影视聚合榜单 (B站原生接口版)
- * 彻底移除 TMDB 依赖，采用 Bilibili PGC 官方接口
- * 特点：零配置、免翻墙、加载极快、数据最符合国内口味
+ * 国内全网影视榜单 (B站 PGC 规范版)
+ * 严格对标 Bilibili 官方 PGC 榜单分类
+ * 包含：番剧、国创、电影、电视剧、纪录片
  */
 
 // ================= [1. 参数定义] =================
 
-// B站接口不支持复杂的分页和历史排序，它直接返回当前的 Top 100 榜单
-// 所以我们将二级菜单精简到极致
-
-function getAnimeParams() {
-    return [
-        {
-            name: "season_type",
-            title: "动漫类型",
-            type: "enumeration",
-            value: "1",
-            enumOptions: [
-                { title: "🇯🇵 日本番剧", value: "1" },
-                { title: "🇨🇳 国创动画", value: "4" }
-            ]
-        }
-    ];
-}
-
-function getSimpleParams() {
+// 所有榜单共用简单的日期参数
+function getRankParams() {
     return [
         {
             name: "time_range",
@@ -42,28 +25,29 @@ function getSimpleParams() {
 // ================= [2. WidgetMetadata 配置] =================
 
 WidgetMetadata = {
-    id: "domestic_media_bilibili",
-    title: "国内热门影视",
-    description: "基于 B站官方 PGC 接口的纯正国内榜单",
+    id: "bilibili_pgc_rank_v3",
+    title: "B站 PGC 榜单",
+    description: "同步哔哩哔哩官方番剧、国创、影视热播排行",
     author: "𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖",
-    version: "3.0.0",
+    version: "3.1.0",
     requiredVersion: "0.0.1",
-    // 移除了 TMDB_API_KEY，彻底零配置
     modules: [
-        { title: "🎬 热门电影", functionName: "loadMovies", type: "video", params: getSimpleParams() },
-        { title: "📺 热门剧集", functionName: "loadTV", type: "video", params: getSimpleParams() },
-        { title: "🎨 热门动漫", functionName: "loadAnime", type: "video", params: getAnimeParams() },
-        { title: "💃 热门综艺", functionName: "loadVariety", type: "video", params: getSimpleParams() }
+        { title: "🌸 番剧", functionName: "loadBangumi", type: "video", params: getRankParams() },
+        { title: "🐉 国创", functionName: "loadGuochuang", type: "video", params: getRankParams() },
+        { title: "🎬 电影", functionName: "loadMovie", type: "video", params: getRankParams() },
+        { title: "📺 电视剧", functionName: "loadTV", type: "video", params: getRankParams() },
+        { title: "🎥 纪录片", functionName: "loadDocumentary", type: "video", params: getRankParams() }
     ]
 };
 
 // ================= [3. 业务处理器] =================
 
-// B站 season_type 对应关系：1=番剧, 2=电影, 3=纪录片, 4=国创, 5=电视剧, 7=综艺
-async function loadMovies(params) { return await fetchBilibiliRank(2, params.time_range); }
+// B站 season_type 对应关系：1=番剧, 2=电影, 3=纪录片, 4=国创, 5=电视剧
+async function loadBangumi(params) { return await fetchBilibiliRank(1, params.time_range); }
+async function loadMovie(params) { return await fetchBilibiliRank(2, params.time_range); }
+async function loadDocumentary(params) { return await fetchBilibiliRank(3, params.time_range); }
+async function loadGuochuang(params) { return await fetchBilibiliRank(4, params.time_range); }
 async function loadTV(params) { return await fetchBilibiliRank(5, params.time_range); }
-async function loadVariety(params) { return await fetchBilibiliRank(7, params.time_range); }
-async function loadAnime(params) { return await fetchBilibiliRank(params.season_type || 1, 3); }
 
 // ================= [4. 核心：Bilibili 数据抓取引擎] =================
 
@@ -81,7 +65,7 @@ async function fetchBilibiliRank(seasonType, day = 3) {
 
         // B站接口如果成功，code 为 0
         if (!response || !response.data || response.data.code !== 0) {
-            throw new Error("B站接口返回异常");
+            throw new Error("接口返回异常");
         }
 
         const list = response.data.result.list || [];
@@ -94,27 +78,30 @@ async function fetchBilibiliRank(seasonType, day = 3) {
             const updateStatus = item.new_ep ? item.new_ep.index_show : "已完结";
             
             // 匹配媒体类型标签
-            let mediaTypeTag = "🎬 电影";
-            if (seasonType === 1 || seasonType === 4) mediaTypeTag = "🎨 动漫";
-            if (seasonType === 5) mediaTypeTag = "📺 剧集";
-            if (seasonType === 7) mediaTypeTag = "💃 综艺";
+            let mediaTypeTag = "影视";
+            if (seasonType === 1) mediaTypeTag = "🌸 番剧";
+            if (seasonType === 2) mediaTypeTag = "🎬 电影";
+            if (seasonType === 3) mediaTypeTag = "🎥 纪录片";
+            if (seasonType === 4) mediaTypeTag = "🐉 国创";
+            if (seasonType === 5) mediaTypeTag = "📺 电视剧";
 
             return {
                 id: item.season_id.toString(),
-                type: "url", // 设为 url 类型，方便后续可能的直接解析播放
-                mediaType: seasonType === 2 ? "movie" : "tv",
+                type: "url", // 设为 url 类型，允许以后如果有播放插件可以直接跳转
+                mediaType: (seasonType === 2 || seasonType === 3) ? "movie" : "tv",
                 title: item.title,
                 subTitle: `TOP ${index + 1} | ⭐ ${score}`,
-                description: `${mediaTypeTag} | ${updateStatus}\n播放量: ${formatCount(item.stat.view)}\n弹幕数: ${formatCount(item.stat.danmaku)}`,
-                coverUrl: item.cover, // B站的海报
-                videoUrl: item.url,   // 直接指向 B站播放页
+                // 简介中加入 B站特有的播放量和弹幕数
+                description: `${mediaTypeTag} | ${updateStatus}\n▶ 播放: ${formatCount(item.stat.view)} | 💬 弹幕: ${formatCount(item.stat.danmaku)}\n${item.desc || ""}`,
+                coverUrl: item.cover,
+                videoUrl: item.url,
                 rating: parseFloat(score) || 0
             };
         });
 
     } catch (error) {
         console.error("Bilibili 抓取失败:", error);
-        return [{ id: "err", type: "text", title: "加载失败", description: "接口访问受限，请稍后重试" }];
+        return [{ id: "err", type: "text", title: "加载失败", description: "接口访问受限或网络异常" }];
     }
 }
 
