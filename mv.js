@@ -1,12 +1,11 @@
-// --- Bilibili PGC Charts Widget (TMDB Pro Enhanced) ---
+// --- Bilibili PGC Charts Widget (TMDB Metadata Version) ---
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36";
 
 var WidgetMetadata = {
     id: "forward.bilibili.pgc.charts.tmdb",
-    title: "B站官方榜单 (TMDB版)",
-    description: "同步B站官方PGC榜单数据，并由TMDB提供高清元数据支持播放按钮",
+    title: "B站 PGC 榜单 (TMDB)",
+    description: "以 B 站官方分类展示榜单，元数据由 TMDB 强力驱动",
     author: "ForwardUser",
-    site: "https://www.bilibili.com/v/popular/rank/bangumi",
     version: "1.3.0",
     requiredVersion: "0.0.1",
     globalParams: [
@@ -14,149 +13,106 @@ var WidgetMetadata = {
             name: "TMDB_API_KEY",
             title: "TMDB API 访问令牌",
             type: "input",
-            description: "建议填写，可从 TMDB 官网免费获取以提高匹配稳定性"
+            description: "填入此项可获得更精准的匹配和更高的访问频率"
         },
     ],
     modules: [
-        {
-            title: "热门番剧榜",
-            functionName: "getBilibiliAnimeRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        },
-        {
-            title: "热门国创榜",
-            functionName: "getBilibiliGuochuangRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        },
-        {
-            title: "电影热播榜",
-            functionName: "getBilibiliMovieRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        },
-        {
-            title: "电视剧热播榜",
-            functionName: "getBilibiliTvRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        },
-        {
-            title: "纪录片榜",
-            functionName: "getBilibiliDocuRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        },
-        {
-            title: "综艺热播榜",
-            functionName: "getBilibiliShowRank",
-            cacheDuration: 7200,
-            params: [{ name: "day", title: "范围", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }]
-        }
+        { title: "番剧榜", functionName: "getAnimeRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] },
+        { title: "国创榜", functionName: "getGuochuangRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] },
+        { title: "电影榜", functionName: "getMovieRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] },
+        { title: "电视剧榜", functionName: "getTvSeriesRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] },
+        { title: "纪录片榜", functionName: "getDocRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] },
+        { title: "综艺榜", functionName: "getVarietyRank", params: [{ name: "day", title: "时间", type: "enumeration", value: "3", enumOptions: [{ title: "三日", value: "3" }, { title: "一周", value: "7" }] }] }
     ]
 };
 
-// --- Helper Functions ---
+// --- TMDB 元数据替换核心逻辑 ---
 
-function formatViewCount(count) {
-    if (!count) return '0';
-    return count >= 10000 ? (count / 10000).toFixed(1) + '万' : count.toString();
-}
-
-/**
- * 清洗B站标题以适配 TMDB 搜索
- */
-function cleanBilibiliTitle(title) {
-    return title
-        .replace(/（[^）]*）|\([^)]*\)/g, '') // 去除括号内容
-        .replace(/第[0-9一二三四五六七八九十]+季/g, '') // 去除季数
-        .replace(/剧场版|特别篇|动态漫|中配|粤语|独家/g, '')
+const getTmdbMetadata = async (biliTitle, mediaType, apiKey) => {
+    // 1. 标题预处理：移除 B 站常见的干扰项（如“第2季”、“（独家）”等）
+    const cleanTitle = biliTitle
+        .replace(/（[^）]+）|\([^)]+\)/g, '')
+        .replace(/第[0-9一二三四五六七八九十]+季/g, '')
+        .replace(/剧场版|特别篇|动态漫|中配|粤语|日语/g, '')
         .trim();
-}
 
-/**
- * TMDB 资源匹配核心
- */
-async function fetchTmdbMetadata(title, mediaType, apiKey) {
-    const cleanTitle = cleanBilibiliTitle(title);
     try {
-        let data;
+        let results;
         if (apiKey) {
             const res = await Widget.http.get(`https://api.themoviedb.org/3/search/${mediaType}`, {
                 params: { query: cleanTitle, language: "zh-CN", include_adult: false },
                 headers: { "Authorization": `Bearer ${apiKey}` }
             });
-            data = res.data;
+            results = res.data?.results;
         } else {
-            // 系统内置调用
-            data = await Widget.tmdb.get(`/search/${mediaType}`, {
+            const res = await Widget.tmdb.get(`/search/${mediaType}`, {
                 params: { query: cleanTitle, language: "zh-CN" }
             });
+            results = res?.results;
         }
 
-        if (!data?.results?.length) return null;
-        
-        // 优先寻找完全匹配标题的结果，否则取第一项
-        const match = data.results.find(i => (i.title || i.name) === cleanTitle) || data.results[0];
-        
+        if (!results || results.length === 0) return null;
+
+        // 优先寻找标题完全一致的，否则取第一个
+        const match = results.find(i => (i.title || i.name) === cleanTitle) || results[0];
+
         return {
-            posterPath: match.poster_path ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : null,
-            backdropPath: match.backdrop_path ? `https://image.tmdb.org/t/p/original${match.backdrop_path}` : null,
+            tmdbId: match.id,
             overview: match.overview,
+            poster: match.poster_path ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : null,
+            backdrop: match.backdrop_path ? `https://image.tmdb.org/t/p/original${match.backdrop_path}` : null,
             rating: match.vote_average
         };
     } catch (e) {
+        console.error(`[TMDB Search Error] ${cleanTitle}:`, e);
         return null;
     }
-}
+};
 
-// --- Main API Logic ---
+// --- 统一数据抓取与融合函数 ---
 
-async function fetchBilibiliPgcRankWithTmdb(seasonType, day, apiKey) {
+async function fetchRankAndEnrich(seasonType, day, apiKey) {
     try {
         const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
         const response = await Widget.http.get(url, { headers: { "User-Agent": USER_AGENT } });
-
-        if (!response?.data?.result?.list) throw new Error("无法读取B站数据");
+        
+        if (!response?.data?.result?.list) throw new Error("无法读取 B 站接口");
 
         const list = response.data.result.list;
-        const mediaType = String(seasonType) === "2" ? "movie" : "tv"; // 电影选movie，其余均归类为tv
+        const mediaType = (seasonType === 2) ? "movie" : "tv";
 
-        // 异步并发处理，提升加载速度
-        const enrichedItems = await Promise.all(list.map(async (item, index) => {
-            const tmdb = await fetchTmdbMetadata(item.title, mediaType, apiKey);
-            
-            // 基础描述（B站信息备份）
-            const biliStats = `Top ${index + 1} | 播放: ${formatViewCount(item.stat?.view)} | ${item.new_ep?.index_show || ''}`;
+        // 并发处理所有项，将 B 站数据与 TMDB 元数据融合
+        return await Promise.all(list.map(async (item, index) => {
+            const tmdb = await getTmdbMetadata(item.title, mediaType, apiKey);
 
             return {
-                id: String(item.season_id || item.ss_id || `bili-${index}`),
-                type: "tmdb", // 核心：设为 tmdb 激活播放按钮
+                id: String(item.season_id || item.ss_id || index),
+                // 保持播放按钮的关键字段
+                type: "tmdb", 
                 mediaType: mediaType,
+                // 展示逻辑
                 title: item.title,
-                // 优先用 TMDB 的中文简介，没有则显示 B 站排名和播放量
-                description: tmdb?.overview || biliStats,
-                // 优先用 TMDB 高清海报，没有则用 B 站封面
-                posterPath: tmdb?.posterPath || item.cover,
-                backdropPath: tmdb?.backdropPath,
-                rating: tmdb?.rating ? tmdb.rating.toFixed(1) : (item.rating || "0"),
+                // 替换元数据：优先使用 TMDB 简介，备选使用 B 站信息
+                description: tmdb?.overview || `B站播放: ${(item.stat?.view / 10000).toFixed(1)}万 | ${item.new_ep?.index_show || ''}`,
+                // 替换封面：优先使用 TMDB 海报
+                posterPath: tmdb?.poster || item.cover,
+                // 替换背景图
+                backdropPath: tmdb?.backdrop,
+                // 替换评分
+                rating: tmdb?.rating || (item.rating ? parseFloat(item.rating) : 0),
                 url: item.url
             };
         }));
-
-        return enrichedItems;
-    } catch (error) {
-        console.error(error);
-        return [{ id: "err", type: "error", title: "榜单加载失败", description: error.message }];
+    } catch (e) {
+        return [{ id: "err", type: "error", title: "获取榜单失败", description: e.message }];
     }
 }
 
-// --- Module Exposed Functions ---
+// --- PGC 官方规范分类入口 ---
 
-async function getBilibiliAnimeRank(params) { return await fetchBilibiliPgcRankWithTmdb(1, params.day, params.TMDB_API_KEY); }
-async function getBilibiliGuochuangRank(params) { return await fetchBilibiliPgcRankWithTmdb(4, params.day, params.TMDB_API_KEY); }
-async function getBilibiliMovieRank(params) { return await fetchBilibiliPgcRankWithTmdb(2, params.day, params.TMDB_API_KEY); }
-async function getBilibiliTvRank(params) { return await fetchBilibiliPgcRankWithTmdb(5, params.day, params.TMDB_API_KEY); }
-async function getBilibiliDocuRank(params) { return await fetchBilibiliPgcRankWithTmdb(3, params.day, params.TMDB_API_KEY); }
-async function getBilibiliShowRank(params) { return await fetchBilibiliPgcRankWithTmdb(7, params.day, params.TMDB_API_KEY); }
+async function getAnimeRank(p) { return await fetchRankAndEnrich(1, p.day, p.TMDB_API_KEY); }     // 番剧
+async function getGuochuangRank(p) { return await fetchRankAndEnrich(4, p.day, p.TMDB_API_KEY); }  // 国创
+async function getMovieRank(p) { return await fetchRankAndEnrich(2, p.day, p.TMDB_API_KEY); }      // 电影
+async function getDocRank(p) { return await fetchRankAndEnrich(3, p.day, p.TMDB_API_KEY); }        // 纪录片
+async function getTvSeriesRank(p) { return await fetchRankAndEnrich(5, p.day, p.TMDB_API_KEY); }   // 电视剧
+async function getVarietyRank(p) { return await fetchRankAndEnrich(7, p.day, p.TMDB_API_KEY); }    // 综艺
