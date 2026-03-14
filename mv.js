@@ -7,7 +7,7 @@ var WidgetMetadata = {
     description: "聚合获取Bilibili番剧、国创、影视、纪录片等官方排行榜单数据",
     author: "ForwardUser",
     site: "https://www.bilibili.com/v/popular/rank/bangumi",
-    version: "1.0.0",
+    version: "1.1.0",
     requiredVersion: "0.0.1",
     modules: [
         {
@@ -15,7 +15,7 @@ var WidgetMetadata = {
             description: "B站热门日本番剧排行榜",
             requiresWebView: false,
             functionName: "getBilibiliAnimeRank",
-            cacheDuration: 7200, // 缓存2小时
+            cacheDuration: 7200,
             params: [
                 { 
                     name: "day", 
@@ -85,7 +85,6 @@ var WidgetMetadata = {
 
 // --- Helper Functions ---
 
-// 格式化播放量
 function formatViewCount(count) {
     if (!count) return '0';
     if (count >= 10000) {
@@ -94,13 +93,11 @@ function formatViewCount(count) {
     return count.toString();
 }
 
-// 错误对象生成器
 function createErrorItem(id, title, error) {
     console.error(`[B站榜单] ${title}:`, error);
     const errorMessage = String(error?.message || error || '未知错误');
-    const uniqueId = `error-${id.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`;
     return {
-        id: uniqueId,
+        id: `error-${id}-${Date.now()}`,
         type: "error",
         title: title || "加载失败",
         description: errorMessage
@@ -109,15 +106,9 @@ function createErrorItem(id, title, error) {
 
 // --- Bilibili API Functions ---
 
-/**
- * 核心请求函数：获取 B站 PGC 榜单
- * @param {number|string} seasonType - 1:番剧, 2:电影, 3:纪录片, 4:国创, 5:电视剧, 7:综艺
- * @param {string} day - 时间范围 "3" 或 "7"
- */
 async function fetchBilibiliPgcRank(seasonType, day) {
     try {
         const url = `https://api.bilibili.com/pgc/web/rank/list?day=${day}&season_type=${seasonType}`;
-        console.log(`[B站榜单] 请求地址: ${url}`);
         
         const response = await Widget.http.get(url, {
             headers: {
@@ -126,62 +117,55 @@ async function fetchBilibiliPgcRank(seasonType, day) {
             }
         });
 
-        if (!response || !response.data) {
-            throw new Error("接口无响应数据");
+        if (!response?.data?.result?.list) {
+            throw new Error("接口数据格式异常");
         }
 
-        const data = response.data;
-        if (data.code !== 0 || !data.result || !data.result.list) {
-            throw new Error(`获取数据失败，错误码: ${data.code}, 信息: ${data.message || '未知'}`);
-        }
-
-        const list = data.result.list;
+        const list = response.data.result.list;
         
+        // 映射 mediaType
+        // B站类型：1:番剧, 2:电影, 3:纪录片, 4:国创, 5:电视剧, 7:综艺
+        let normalizedMediaType = "tv"; 
+        if (String(seasonType) === "2") {
+            normalizedMediaType = "movie";
+        }
+
         return list.map((item, index) => {
             let descriptionParts = [`Top ${index + 1}`];
             
-            if (item.rating) {
-                descriptionParts.push(`评分: ${item.rating}`);
-            }
-            if (item.stat && item.stat.view) {
-                descriptionParts.push(`播放: ${formatViewCount(item.stat.view)}`);
-            }
-            if (item.new_ep && item.new_ep.index_show) {
-                descriptionParts.push(item.new_ep.index_show);
-            }
+            if (item.rating) descriptionParts.push(`评分: ${item.rating}`);
+            if (item.stat?.view) descriptionParts.push(`播放: ${formatViewCount(item.stat.view)}`);
+            if (item.new_ep?.index_show) descriptionParts.push(item.new_ep.index_show);
 
             return {
-                id: String(item.season_id || item.ss_id || `bili-${Date.now()}-${index}`),
-                type: "bilibili_pgc",
+                id: String(item.season_id || item.ss_id || `bili-${index}`),
+                // 核心修复：修改为 tmdb 触发播放/搜索按钮
+                type: "tmdb", 
                 title: item.title,
                 posterPath: item.cover,
                 description: descriptionParts.join(" | "),
-                rating: item.rating ? String(item.rating) : undefined,
-                url: item.url // 可选：返回原站链接
+                // 将10分制转为常见的5分制用于星星显示
+                rating: item.rating ? (parseFloat(item.rating) / 2).toFixed(1) : undefined, 
+                mediaType: normalizedMediaType,
+                url: item.url
             };
         });
 
     } catch (error) {
-        return [createErrorItem(`fetch-bilibili-${seasonType}`, 'B站榜单请求失败', error)];
+        return [createErrorItem(`fetch-bili-${seasonType}`, '请求失败', error)];
     }
 }
 
 // --- Module Exposed Functions ---
 
 async function getBilibiliAnimeRank(params = {}) {
-    const day = params.day || "3";
-    // season_type 1 代表番剧
-    return await fetchBilibiliPgcRank(1, day);
+    return await fetchBilibiliPgcRank(1, params.day || "3");
 }
 
 async function getBilibiliGuochuangRank(params = {}) {
-    const day = params.day || "3";
-    // season_type 4 代表国创（国产动画）
-    return await fetchBilibiliPgcRank(4, day);
+    return await fetchBilibiliPgcRank(4, params.day || "3");
 }
 
 async function getBilibiliMediaRank(params = {}) {
-    const day = params.day || "3";
-    const seasonType = params.season_type || "2"; // 默认 2 电影
-    return await fetchBilibiliPgcRank(seasonType, day);
+    return await fetchBilibiliPgcRank(params.season_type || "2", params.day || "3");
 }
