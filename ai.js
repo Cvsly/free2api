@@ -1,7 +1,7 @@
 /**
- * AI 影视推荐模块（彻底修复演员名字搜索）
+ * AI 影视推荐模块（方案A：全局搜索演员优先）
  * 支持OpenAI/Gemini/硅基流动/NewApi等接口
- * 适配Forward官方搜索规范，保留全局AI搜索+类型推荐+相似推荐
+ * 适配Forward官方搜索规范，接管全局搜索，优先返回演员作品
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -12,10 +12,10 @@ const BACKDROP_BASE = "https://image.tmdb.org/t/p/original";
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "AI智能推荐+相似推荐+全局AI搜索，兼容多平台AI接口",
+  description: "AI智能推荐+相似推荐+全局演员优先搜索",
   author: "crush7s",
   site: "https://github.com/InchStudio/ForwardWidgets",
-  version: "5.4.0",
+  version: "6.0.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
   
@@ -71,7 +71,7 @@ var WidgetMetadata = {
       name: "TMDB_API_KEY",
       title: "TMDB API Key",
       type: "input",
-      required: true, // 改为必填，保证演员搜索可用
+      required: true,
       description: "在 themoviedb.org 获取的API Key（演员搜索必需）",
       placeholders: [
         { title: "示例 Key", value: "c5efdaca8be081f824c3201b3fb00670" },
@@ -142,21 +142,20 @@ var WidgetMetadata = {
     },
   ],
   
-  // 保留：Forward全局AI搜索入口（核心功能）
+  // 接管全局搜索：演员优先
   search: {
     title: "AI 影视搜索",
-    functionName: "nlSearch",
+    functionName: "actorFirstSearch",
     params: [
       {
         name: "query",
-        title: "AI搜索",
+        title: "搜索",
         type: "input",
-        description: "用自然语言描述，AI 帮你找片",
+        description: "输入演员名/片名/类型，优先返回演员作品",
         placeholders: [
-          { title: "去年高分科幻片", value: "去年高分科幻片" },
-          { title: "诺兰的电影", value: "诺兰的电影" },
-          { title: "类似盗梦空间", value: "类似盗梦空间" },
-          { title: "最近热门美剧", value: "最近热门美剧" },
+          { title: "周星驰", value: "周星驰" },
+          { title: "科幻片", value: "科幻片" },
+          { title: "诺兰", value: "诺兰" },
         ],
       },
     ],
@@ -246,6 +245,76 @@ function parseNames(content) {
   return [...new Set(names)];
 }
 
+// 演员搜索 → 获取演员作品
+async function getActorWorks(actorName, apiKey, count) {
+  if (!actorName || !apiKey) return [];
+  try {
+    // 1. 搜索演员
+    var personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
+      params: { 
+        api_key: apiKey, 
+        query: actorName, 
+        language: "zh-CN",
+        include_adult: false
+      },
+      headers: { "User-Agent": USER_AGENT },
+      timeout: 10000
+    });
+
+    if (!personRes.data.results?.length) return [];
+    var personId = personRes.data.results[0].id;
+
+    // 2. 获取演员参演电影 + 剧集
+    var [movieCredits, tvCredits] = await Promise.all([
+      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
+        params: { api_key: apiKey, language: "zh-CN" },
+        headers: { "User-Agent": USER_AGENT }
+      }),
+      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
+        params: { api_key: apiKey, language: "zh-CN" },
+        headers: { "User-Agent": USER_AGENT }
+      })
+    ]);
+
+    var works = [];
+    // 合并并过滤无效结果
+    if (movieCredits.data.cast) {
+      works = works.concat(
+        movieCredits.data.cast
+          .filter(i => !i.title?.includes("合集") && !i.title?.includes("纪录"))
+          .map(i => ({...i, media_type: "movie"}))
+      );
+    }
+    if (tvCredits.data.cast) {
+      works = works.concat(
+        tvCredits.data.cast
+          .filter(i => !i.name?.includes("合集") && !i.name?.includes("纪录"))
+          .map(i => ({...i, media_type: "tv"}))
+      );
+    }
+    
+    works.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    works = works.slice(0, count);
+
+    // 3. 转换为 Forward 格式
+    return works.map(d => ({
+      id: `tmdb:${d.media_type}:${d.id}`,
+      type: "video",
+      title: d.title || d.name,
+      description: d.overview || "暂无影片简介",
+      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
+      backdrop: d.backdrop_path ? BACKDROP_BASE + d.backdrop_path : null,
+      year: (d.release_date || d.first_air_date || "").split("-")[0] || "未知",
+      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
+      mediaType: d.media_type,
+      link: `tmdb:${d.media_type}:${d.id}`,
+    }));
+  } catch (e) {
+    console.error(`[演员搜索失败] ${actorName}: ${e.message}`);
+    return [];
+  }
+}
+
 // 原有的片名搜索
 async function getTmdbDetail(title, mediaType, apiKey) {
   if (!title) return null;
@@ -285,151 +354,71 @@ async function getTmdbDetail(title, mediaType, apiKey) {
   }
 }
 
-// 新增：演员搜索 → 获取演员作品（彻底修复版）
-async function getActorWorks(actorName, apiKey, count) {
-  if (!actorName || !apiKey) return [];
-  try {
-    // 1. 搜索演员（精确匹配）
-    var personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
-      params: { 
-        api_key: apiKey, 
-        query: actorName, 
-        language: "zh-CN",
-        include_adult: false
-      },
-      headers: { "User-Agent": USER_AGENT },
-      timeout: 10000
-    });
-
-    if (!personRes.data.results?.length) {
-      console.log(`[演员搜索] 未找到演员: ${actorName}`);
-      return [];
-    }
-    var personId = personRes.data.results[0].id;
-    console.log(`[演员搜索] 找到演员: ${actorName}, ID: ${personId}`);
-
-    // 2. 获取演员参演电影 + 剧集
-    var [movieCredits, tvCredits] = await Promise.all([
-      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
-        params: { api_key: apiKey, language: "zh-CN" },
-        headers: { "User-Agent": USER_AGENT }
-      }),
-      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
-        params: { api_key: apiKey, language: "zh-CN" },
-        headers: { "User-Agent": USER_AGENT }
-      })
-    ]);
-
-    var works = [];
-    // 合并电影和剧集，按 popularity 排序，过滤掉合集/纪录片
-    if (movieCredits.data.cast) {
-      works = works.concat(
-        movieCredits.data.cast
-          .filter(i => !i.title.includes("合集") && !i.title.includes("纪录片") && !i.title.includes("纪录"))
-          .map(i => ({...i, media_type: "movie"}))
-      );
-    }
-    if (tvCredits.data.cast) {
-      works = works.concat(
-        tvCredits.data.cast
-          .filter(i => !i.name.includes("合集") && !i.name.includes("纪录片") && !i.name.includes("纪录"))
-          .map(i => ({...i, media_type: "tv"}))
-      );
-    }
-    
-    works.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-    works = works.slice(0, count);
-    console.log(`[演员搜索] ${actorName} 找到 ${works.length} 部作品`);
-
-    // 3. 转换为 Forward 格式
-    return works.map(d => ({
-      id: `tmdb:${d.media_type}:${d.id}`,
-      type: "video",
-      title: d.title || d.name,
-      description: d.overview || "暂无影片简介",
-      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
-      backdrop: d.backdrop_path ? BACKDROP_BASE + d.backdrop_path : null,
-      year: (d.release_date || d.first_air_date || "").split("-")[0] || "未知",
-      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
-      mediaType: d.media_type,
-      link: `tmdb:${d.media_type}:${d.id}`,
-    }));
-  } catch (e) {
-    console.error(`[演员搜索失败] ${actorName}: ${e.message}`);
-    return [];
-  }
-}
-
-// ==================== 4. 核心函数：全局AI自然语言搜索（强制演员优先） ====================
-async function nlSearch(params = {}) {
+// ==================== 4. 核心：全局搜索（演员优先） ====================
+async function actorFirstSearch(params = {}) {
   const keyword = (params.query || "").trim();
-  if (!keyword) throw new Error("请输入想看的内容描述");
+  if (!keyword) return []; // 空查询直接返回空，避免报错
   
-  const aiApiUrl = params.aiApiUrl;
-  const aiApiKey = params.aiApiKey;
-  const aiModel = params.aiModel;
-  const aiApiFormat = params.aiApiFormat || "openai";
   const tmdbKey = params.TMDB_API_KEY;
   const count = parseInt(params.recommendCount) || 9;
 
-  // 强制判断：只要是中文/英文名字，就优先走演员搜索
+  // 1. 优先识别演员名，返回演员作品
   const isChineseName = /^[\u4e00-\u9fa5]{2,}$/.test(keyword);
   const isEnglishName = /^[A-Za-z\s]{2,}$/.test(keyword);
-  const isActorName = isChineseName || isEnglishName;
-
-  // 【关键修复】如果是演员名字，且有TMDB Key，直接返回演员作品，不走AI
-  if (isActorName && tmdbKey) {
-    console.log(`[搜索] 识别为演员名: ${keyword}，直接查询演员作品`);
+  if ((isChineseName || isEnglishName) && tmdbKey) {
     const actorWorks = await getActorWorks(keyword, tmdbKey, count);
-    if (actorWorks.length > 0) {
-      return actorWorks; // 直接返回，不再走AI推荐
-    }
+    if (actorWorks.length > 0) return actorWorks;
   }
 
-  // 非演员名字，走原AI推荐逻辑
-  if (!aiApiUrl || !aiApiKey || !aiModel) {
-    throw new Error("请先在全局参数中配置完整的AI API信息");
+  // 2. 非演员名 → 走 TMDB 片名搜索
+  if (!tmdbKey) {
+    throw new Error("请配置 TMDB API Key 以使用搜索功能");
   }
 
-  try {
-    const aiConfig = {
-      apiUrl: aiApiUrl,
-      apiKey: aiApiKey,
-      model: aiModel,
-      format: aiApiFormat,
-      prompt: keyword,
-      count: count
-    };
-    const aiRaw = await callAI(aiConfig);
-    const movieNames = parseNames(aiRaw).slice(0, count);
-    if (movieNames.length === 0) throw new Error("AI未解析出有效影视名称");
+  const [movieRes, tvRes] = await Promise.all([
+    Widget.http.get("https://api.themoviedb.org/3/search/movie", {
+      params: { api_key: tmdbKey, query: keyword, language: "zh-CN" },
+      headers: { "User-Agent": USER_AGENT },
+    }),
+    Widget.http.get("https://api.themoviedb.org/3/search/tv", {
+      params: { api_key: tmdbKey, query: keyword, language: "zh-CN" },
+      headers: { "User-Agent": USER_AGENT },
+    }),
+  ]);
 
-    const detailPromises = movieNames.map(name => 
-      getTmdbDetail(name, "movie", tmdbKey).then(detail => detail || getTmdbDetail(name, "tv", tmdbKey))
-    );
-    const detailResults = await Promise.all(detailPromises);
-    const validResults = detailResults.filter(Boolean);
-
-    if (validResults.length === 0) {
-      return movieNames.map((name, index) => ({
-        id: `ai_nl_${index}_${Date.now()}`,
-        type: "video",
-        title: name,
-        description: "AI全局搜索推荐 | 暂无TMDB详情",
-        poster: null,
-        backdrop: null,
-        year: "未知",
-        rating: 0,
-        link: `ai_${name}`,
-        mediaType: "movie"
-      }));
-    }
-
-    return validResults;
-  } catch (error) {
-    console.error("[AI全局搜索失败]:", error.message);
-    throw new Error(`AI搜索失败：${error.message}`);
+  const items = [];
+  if (movieRes.data.results) {
+    items.push(...movieRes.data.results.map(d => ({
+      id: `tmdb:movie:${d.id}`,
+      type: "video",
+      title: d.title,
+      description: d.overview,
+      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
+      year: (d.release_date || "").split("-")[0] || "未知",
+      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
+      mediaType: "movie",
+      link: `tmdb:movie:${d.id}`,
+    })));
   }
+  if (tvRes.data.results) {
+    items.push(...tvRes.data.results.map(d => ({
+      id: `tmdb:tv:${d.id}`,
+      type: "video",
+      title: d.name,
+      description: d.overview,
+      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
+      year: (d.first_air_date || "").split("-")[0] || "未知",
+      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
+      mediaType: "tv",
+      link: `tmdb:tv:${d.id}`,
+    })));
+  }
+
+  // 过滤合集/纪录片，按评分排序
+  return items
+    .filter(i => !i.title?.includes("合集") && !i.title?.includes("纪录"))
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, count);
 }
 
 // ==================== 5. 保留原核心功能：AI智能推荐 ====================
@@ -516,4 +505,4 @@ async function loadDetail(item) {
   };
 }
 
-console.log("AI影视推荐模块 v5.4.0 加载成功 ✅（彻底修复演员搜索）");
+console.log("AI影视推荐模块 v6.0.0 加载成功 ✅（全局搜索演员优先）");
