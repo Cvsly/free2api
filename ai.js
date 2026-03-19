@@ -1,101 +1,168 @@
 /**
  * AI 影视推荐与智能搜索模块
- * 版本：5.3.0 (深度意图解析 & 资源补全版)
+ * 版本：5.3.0 (深度搜索与意图解析版)
+ * 优化点：自动将演职员名转为代表作、强效过滤合集、补全元数据
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
+// ==================== 1. Metadata 定义 ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
-  title: "AI 智能搜索",
-  description: "深度理解搜索意图，自动过滤合集，匹配精准单体影视资源",
+  title: "AI 智能影视搜索",
+  description: "基于 AI 的自然语言搜索，精准匹配单体影视资源，自动过滤合集干扰",
   author: "crush7s",
   version: "5.3.0",
+  requiredVersion: "0.0.2",
+  detailCacheDuration: 3600,
+  
   globalParams: [
-    { name: "aiApiUrl", title: "API 地址", type: "input", defaultValue: "https://api.siliconflow.cn/v1/chat/completions" },
-    { name: "aiApiFormat", title: "格式", type: "enumeration", enumOptions: [{title:"OpenAI", value:"openai"}, {title:"Gemini", value:"gemini"}], defaultValue: "openai" },
-    { name: "aiApiKey", title: "API 密钥", type: "input", required: true },
-    { name: "aiModel", title: "模型", type: "input", defaultValue: "deepseek-ai/DeepSeek-V3" },
-    { name: "TMDB_API_KEY", title: "TMDB Key", type: "input", defaultValue: "c5efdaca8be081f824c3201b3fb00670" }, // 默认提供一个备用Key
-    { name: "recommendCount", title: "数量", type: "enumeration", enumOptions: [{title:"10部", value:"10"}, {title:"15部", value:"15"}], defaultValue: "10" }
+    {
+      name: "aiApiUrl",
+      title: "AI API 地址",
+      type: "input",
+      required: true,
+      defaultValue: "https://api.siliconflow.cn/v1/chat/completions",
+      description: "推荐使用硅基流动或 OpenAI 格式接口",
+    },
+    {
+      name: "aiApiFormat",
+      title: "API 格式",
+      type: "enumeration",
+      enumOptions: [
+        { title: "OpenAI 格式 (通用)", value: "openai" },
+        { title: "Gemini 格式", value: "gemini" },
+      ],
+      defaultValue: "openai",
+    },
+    {
+      name: "aiApiKey",
+      title: "AI API 密钥",
+      type: "input",
+      required: true,
+    },
+    {
+      name: "aiModel",
+      title: "AI 模型名称",
+      type: "input",
+      required: true,
+      defaultValue: "deepseek-ai/DeepSeek-V3",
+    },
+    {
+      name: "TMDB_API_KEY",
+      title: "TMDB API Key",
+      type: "input",
+      required: false,
+      description: "留空则使用内置 Key",
+    },
+    {
+      name: "recommendCount",
+      title: "结果数量",
+      type: "enumeration",
+      enumOptions: [
+        { title: "10部", value: "10" },
+        { title: "15部", value: "15" },
+      ],
+      defaultValue: "10",
+    },
   ],
+  
+  // 搜索框入口：支持自然语言搜索
   search: {
     title: "AI 智能搜索",
     functionName: "searchAI",
-    params: [{ name: "keyword", title: "描述你想看的内容", type: "input" }]
+    params: [
+      {
+        name: "keyword",
+        title: "描述你想看的内容",
+        type: "input",
+      },
+    ],
   },
+  
   modules: [
-    { id: "smartRecommend", title: "AI 发现", functionName: "loadAIList", params: [{ name: "prompt", title: "想看什么", type: "input", value: "经典高分悬疑片" }] }
-  ]
+    {
+      id: "smartRecommend",
+      title: "AI 发现",
+      functionName: "loadAIList",
+      params: [{ name: "prompt", title: "想看什么", type: "input", value: "最近的高分悬疑剧" }],
+    },
+  ],
 };
 
-// ==================== 1. 意图解析引擎 ====================
+// ==================== 2. AI 意图解析层 ====================
 
 async function callAI(config) {
-  const { apiUrl, apiKey, model, format, prompt, count } = config;
+  var { apiUrl, apiKey, model, format, prompt, count } = config;
   
-  // 核心 Prompt：强制 AI 执行“实体拆解”
-  const systemPrompt = `你是一个专业的影视数据专家。
-任务：根据用户输入的关键词，输出 ${count} 个具体的、单体的影视作品名称。
-约束：
-1. 如果用户输入人名（如“周星驰”），请输出他主演的最具代表性的单体电影名，严禁直接输出人名。
-2. 严禁输出任何形式的“合集”、“系列”、“纪录片”、“电影节”或“Collection”。
-3. 严禁输出任何解释、序号、标点或“非常抱歉”等废话。
-4. 每行一个剧名，必须是纯文本。`;
-
+  // 极致 Prompt：模仿云端模块的意图解析
+  var systemPrompt = "你是一个专业的影视库搜索引擎。\n" +
+    "【核心任务】根据用户输入的描述或关键词，列出 " + count + " 个具体的作品名称。\n" +
+    "【铁律】\n" +
+    "1. 实体转换：如果用户搜的是人名（如周星驰），你必须输出该艺人主演的单体电影作品名（如《功夫》），绝对禁止输出该人名本身。\n" +
+    "2. 严禁合集：严禁输出包含“合集”、“系列”、“Collection”、“纪录片”、“电影节”的作品。\n" +
+    "3. 纯净输出：严禁带序号、严禁带年份、严禁输出任何开场白或解释（如“好的，为您推荐...”）。\n" +
+    "4. 每行一个剧名，若无结果请保持沉默。";
+  
   if (format === "gemini") {
     return await callGemini(apiUrl, apiKey, model, prompt, count);
   }
 
-  const headers = { "Content-Type": "application/json" };
+  var headers = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = apiKey.startsWith('Bearer ') ? apiKey : "Bearer " + apiKey;
 
-  const response = await Widget.http.post(apiUrl, {
+  var response = await Widget.http.post(apiUrl, {
     model: model,
-    messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }],
-    temperature: 0.2
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: "搜索关键词：「" + prompt + "」" }
+    ],
+    temperature: 0.1, // 降低随机性，确保精准
   }, { headers: headers, timeout: 60000 });
 
-  const data = response.data || response;
-  return data.choices?.[0]?.message?.content || "";
+  var data = response.data || response;
+  return data.choices ? data.choices[0].message.content : "";
 }
 
-// ==================== 2. 高级过滤与 TMDB 匹配 ====================
+// ==================== 3. 智能过滤与资源匹配 (核心) ====================
 
 async function getSmartTmdbDetail(title, apiKey) {
-  if (!title) return null;
-  const types = ["movie", "tv"];
-  const bannedWords = ["合集", "Collection", "纪录", "传记", "典藏", "电影节", "花絮", "特典"];
+  if (!title || title.length < 1) return null;
+  
+  // 过滤黑名单：剔除合集类词汇
+  const bannedWords = ["合集", "Collection", "纪录", "传记", "典藏", "电影节", "花絮", "特典", "周边"];
+  const searchTypes = ["movie", "tv"];
 
-  for (let type of types) {
+  for (let type of searchTypes) {
     try {
-      let resp;
+      let responseData;
       if (apiKey) {
-        resp = await Widget.http.get(`https://api.themoviedb.org/3/search/${type}`, {
-          params: { api_key: apiKey, query: title, language: "zh-CN" }
+        let res = await Widget.http.get("https://api.themoviedb.org/3/search/" + type, { 
+          params: { api_key: apiKey, query: title, language: "zh-CN", include_adult: false },
+          timeout: 10000
         });
-        resp = resp.data;
+        responseData = res.data;
       } else {
-        resp = await Widget.tmdb.get(`/search/${type}`, { params: { query: title, language: "zh-CN" } });
+        responseData = await Widget.tmdb.get("/search/" + type, { params: { query: title, language: "zh-CN" } });
       }
 
-      if (resp && resp.results && resp.results.length > 0) {
-        // 关键逻辑：在搜索结果中筛选非合集项目
-        let match = resp.results.find(item => {
-          const t = item.title || item.name || "";
-          return !bannedWords.some(w => t.includes(w));
+      if (responseData && responseData.results && responseData.results.length > 0) {
+        // 在结果中寻找第一个不包含黑名单词汇的项目
+        let bestMatch = responseData.results.find(item => {
+          let name = item.title || item.name || "";
+          return !bannedWords.some(word => name.includes(word));
         });
 
-        if (match) {
+        if (bestMatch) {
           return {
-            id: match.id,
+            id: bestMatch.id,
             type: "tmdb",
-            title: match.title || match.name,
-            description: (match.overview || "暂无简介").substring(0, 100) + "...",
-            posterPath: match.poster_path ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : null,
-            backdropPath: match.backdrop_path ? `https://image.tmdb.org/t/p/original${match.backdrop_path}` : null,
-            releaseDate: match.release_date || match.first_air_date || "未知日期",
-            rating: match.vote_average || 0.0,
+            title: bestMatch.title || bestMatch.name,
+            description: (bestMatch.overview || "暂无简介").substring(0, 120) + "...",
+            posterPath: bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : null,
+            backdropPath: bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : null,
+            releaseDate: bestMatch.release_date || bestMatch.first_air_date || "",
+            rating: bestMatch.vote_average || 0.0,
             mediaType: type
           };
         }
@@ -105,21 +172,21 @@ async function getSmartTmdbDetail(title, apiKey) {
   return null;
 }
 
-// ==================== 3. 统一入口 ====================
+// ==================== 4. 业务执行逻辑 ====================
 
 async function searchAI(params) {
-  const kw = (params.keyword || params.query || "").trim();
-  return await executeLogic(params, kw);
+  const keyword = (params.keyword || params.query || "").trim();
+  return await executeCommonLogic(params, keyword);
 }
 
 async function loadAIList(params) {
-  return await executeLogic(params, params.prompt);
+  return await executeCommonLogic(params, params.prompt);
 }
 
-async function executeLogic(params, promptText) {
+async function executeCommonLogic(params, promptText) {
   if (!promptText) return [];
 
-  const config = {
+  var aiConfig = {
     apiUrl: params.aiApiUrl,
     apiKey: params.aiApiKey,
     model: params.aiModel,
@@ -128,21 +195,22 @@ async function executeLogic(params, promptText) {
     count: parseInt(params.recommendCount) || 10
   };
 
-  // 1. AI 解析出干净的电影名列表
-  const rawContent = await callAI(config);
-  const names = rawContent.split("\n")
-    .map(n => n.replace(/^[\d\.\-\s]*/, '').replace(/[《》]/g, '').trim())
-    .filter(n => n.length > 0 && n.length < 20 && !n.includes("抱歉"));
+  // 1. 获取 AI 解析出的纯净剧名列表
+  var content = await callAI(aiConfig);
+  var names = content.split("\n")
+    .map(line => line.replace(/^[\d\+\-\*•\s\.、]*/g, '').replace(/[《》""'']/g, '').trim())
+    .filter(n => n.length > 0 && n.length < 25 && !n.includes("抱歉"));
 
-  // 2. 并行获取 TMDB 详情（带合集过滤）
-  const detailPromises = names.map(name => getSmartTmdbDetail(name, params.TMDB_API_KEY));
-  const details = await Promise.all(detailPromises);
+  if (names.length === 0) throw new Error("AI 未能识别该关键词，请换个描述试试");
 
-  // 3. 结果去重与展示
-  const seen = new Set();
-  return details.filter(d => {
-    if (d && !seen.has(d.id)) {
-      seen.add(d.id);
+  // 2. 并行获取 TMDB 详情（包含合集过滤与海报补全）
+  var results = await Promise.all(names.map(name => getSmartTmdbDetail(name, params.TMDB_API_KEY)));
+
+  // 3. 去重并返回
+  var seenIds = new Set();
+  return results.filter(r => {
+    if (r && !seenIds.has(r.id)) {
+      seenIds.add(r.id);
       return true;
     }
     return false;
@@ -150,8 +218,12 @@ async function executeLogic(params, promptText) {
 }
 
 async function callGemini(url, key, model, prompt, count) {
-  const fullUrl = `${url.replace(/\/$/, '')}/models/${model}:generateContent?key=${key}`;
-  const p = `列出${count}个具体的影视作品名称（不要合集，不要解释），针对描述：${prompt}。每行一个名。`;
-  const res = await Widget.http.post(fullUrl, { contents: [{ parts: [{ text: p }] }] });
+  var fullUrl = url.replace(/\/$/, '') + "/models/" + model + ":generateContent?key=" + key;
+  var body = {
+    contents: [{ parts: [{ text: "列出" + count + "个具体的影视作品名（严禁人名、严禁合集、严禁废话、每行一个）：" + prompt }] }]
+  };
+  var res = await Widget.http.post(fullUrl, body);
   return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
+
+console.log("AI 智能搜索模块 v5.3.0 加载完成 [深度意图解析版]");
