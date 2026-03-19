@@ -1,21 +1,19 @@
 /**
- * AI 影视推荐模块（修复添加失败问题）
- * 兼容Forward底层API，确保模块正常加载
+ * AI 影视推荐及搜索模块
+ * 支持OpenAI/Gemini/硅基流动/NewApi等接口
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
-const BACKDROP_BASE = "https://image.tmdb.org/t/p/original";
 
-// ==================== 1. Metadata 定义（简化必填项，确保加载）====================
+// ==================== 1. Metadata 定义 ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "自然语言描述需求，AI精准匹配影视",
+  description: "基于自定义AI的智能影视推荐与搜索，兼容OpenAI/Gemini/硅基流动/NewApi等接口",
   author: "crush7s",
-  site: "https://github.com/InchStudio/ForwardWidgets",
-  version: "7.1.0",
-  requiredVersion: "0.0.1",
+  site: "",
+  version: "5.0.0", // 升级版本号
+  requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
   
   globalParams: [
@@ -25,14 +23,31 @@ var WidgetMetadata = {
       type: "input",
       required: true,
       defaultValue: "https://api.openai.com/v1/chat/completions",
-      description: "必填：AI接口地址",
+      description: "点击右侧按钮可选择预设API地址",
+      placeholders: [
+        { title: "OpenAI 官方", value: "https://api.openai.com/v1/chat/completions" },
+        { title: "Gemini 官方", value: "https://generativelanguage.googleapis.com/v1beta" },
+        { title: "硅基流动", value: "https://api.siliconflow.cn/v1/chat/completions" },
+        { title: "自定义", value: "" },
+      ],
+    },
+    {
+      name: "aiApiFormat",
+      title: "API 格式",
+      type: "enumeration",
+      enumOptions: [
+        { title: "OpenAI 格式 (通用)", value: "openai" },
+        { title: "Gemini 格式", value: "gemini" },
+      ],
+      defaultValue: "openai",
+      description: "选择API响应格式，Gemini官方地址请选择Gemini格式",
     },
     {
       name: "aiApiKey",
       title: "AI API 密钥",
       type: "input",
       required: true,
-      description: "必填：AI接口密钥",
+      description: "你的API Key",
     },
     {
       name: "aiModel",
@@ -40,49 +55,68 @@ var WidgetMetadata = {
       type: "input",
       required: true,
       defaultValue: "gpt-3.5-turbo",
-      description: "必填：如gpt-3.5-turbo、Qwen/Qwen2.5-7B-Instruct",
+      description: "推荐使用：deepseek-ai/DeepSeek-V3 或 Qwen/Qwen2.5-7B-Instruct",
     },
     {
       name: "TMDB_API_KEY",
       title: "TMDB API Key",
       type: "input",
-      required: true,
-      defaultValue: "c5efdaca8be081f824c3201b3fb00670",
-      description: "必填：TMDB接口密钥（示例可直接使用）",
+      required: false,
+      description: "可选：在 https://www.themoviedb.org/settings/api 获取",
     },
     {
       name: "recommendCount",
-      title: "推荐数量",
+      title: "结果数量",
       type: "enumeration",
       enumOptions: [
-        { title: "3部", value: "3" },
-        { title: "6部", value: "6" },
-        { title: "9部", value: "9" },
+        { title: "5部", value: "5" },
+        { title: "10部", value: "10" },
+        { title: "15部", value: "15" },
       ],
-      defaultValue: "6",
+      defaultValue: "10",
     },
   ],
+  
+  // 新增：全局搜索功能定义
+  search: {
+    title: "AI 智能搜索",
+    functionName: "searchAI",
+    params: [
+      {
+        name: "keyword",
+        title: "想找什么？",
+        type: "input",
+        description: "用自然语言描述，AI 帮你找片",
+        placeholders: [
+          { title: "去年高分科幻片", value: "去年高分科幻片" },
+          { title: "类似盗梦空间的电影", value: "类似盗梦空间的电影" },
+          { title: "周星驰执导的作品", value: "周星驰执导的作品" },
+        ],
+      },
+    ],
+  },
   
   modules: [
     {
       id: "smartRecommend",
       title: "AI智能推荐",
+      description: "根据描述智能推荐影视",
       functionName: "loadAIList",
       requiresWebView: false,
       params: [
         {
           name: "prompt",
-          title: "想看什么类型",
+          title: "想看什么",
           type: "input",
           required: true,
-          value: "科幻片",
-          description: "输入影视类型，如科幻片、喜剧",
+          value: "高分犯罪剧集",
         },
       ],
     },
     {
       id: "similarRecommend",
       title: "相似推荐",
+      description: "基于喜欢的作品推荐相似内容",
       functionName: "loadSimilarList",
       requiresWebView: false,
       params: [
@@ -91,259 +125,181 @@ var WidgetMetadata = {
           title: "喜欢的作品",
           type: "input",
           required: true,
-          value: "星际穿越",
-          description: "输入喜欢的影视名称",
+          value: "",
         },
       ],
     },
   ],
-  
-  search: {
-    title: "AI 影视搜索",
-    functionName: "nlSearch",
-    params: [
-      {
-        name: "keyword",
-        title: "搜索关键词",
-        type: "input",
-        required: true,
-        value: "周星驰",
-        description: "输入演员名、导演名、影视类型",
-      },
-    ],
-  },
 };
 
-// ==================== 2. 基础工具函数（兼容Forward API）====================
-/**
- * 安全的HTTP请求（兼容Forward Widget.http）
- */
-async function safeRequest(url, options = {}) {
-  try {
-    const defaultHeaders = {
-      "User-Agent": USER_AGENT,
-      "Content-Type": "application/json",
-    };
-    options.headers = { ...defaultHeaders, ...options.headers };
-    options.timeout = options.timeout || 15000;
-    return await Widget.http.get(url, options);
-  } catch (e) {
-    console.error("[请求失败]", url, e.message);
-    throw new Error(`接口请求失败：${e.message}`);
+// ==================== 2. AI API 适配器 (保持不变) ====================
+
+async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens) {
+  var headers = { "Content-Type": "application/json" };
+  if (apiKey) {
+    headers["Authorization"] = apiKey.startsWith('Bearer ') ? apiKey : "Bearer " + apiKey;
   }
+  return await Widget.http.post(apiUrl, {
+    model: model,
+    messages: messages,
+    max_tokens: maxTokens || 500,
+    temperature: temperature || 0.5,
+  }, { headers: headers, timeout: 60000 });
 }
 
-/**
- * AI接口调用（简化逻辑，确保返回）
- */
-async function callAI(apiUrl, apiKey, model, messages) {
-  try {
-    const headers = {
-      "Authorization": apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    };
-    const response = await Widget.http.post(apiUrl, {
-      model: model,
-      messages: messages,
-      temperature: 0.3,
-    }, { headers, timeout: 20000 });
-    return response.data.choices[0].message.content;
-  } catch (e) {
-    console.error("[AI调用失败]", e.message);
-    // 降级返回默认结果，避免模块加载失败
-    return JSON.stringify({ type: "title", value: messages[1].content });
-  }
-}
-
-// ==================== 3. 核心逻辑（简化+容错）====================
-/**
- * 解析搜索意图（简化逻辑，确保返回结构化数据）
- */
-async function parseQueryIntent(params) {
-  const keyword = (params.keyword || params.query || "").trim();
-  try {
-    const systemPrompt = `解析用户查询，返回JSON：{type: actor/director/genre/title, value: 核心值}
-示例1：周星驰 → {"type":"actor","value":"周星驰"}
-示例2：诺兰 → {"type":"director","value":"诺兰"}
-示例3：科幻片 → {"type":"genre","value":"科幻"}
-只返回JSON，无额外文字！`;
-    const content = await callAI(
-      params.aiApiUrl,
-      params.aiApiKey,
-      params.aiModel,
-      [{ role: "system", content: systemPrompt }, { role: "user", content: keyword }]
-    );
-    return JSON.parse(content.replace(/```json|```/g, "").trim());
-  } catch (e) {
-    // 强制降级，避免解析失败导致模块崩溃
-    if (/^[\u4e00-\u9fa5]{2,}$/.test(keyword) || /^[A-Za-z\s]{2,}$/.test(keyword)) {
-      return { type: "actor", value: keyword };
-    }
-    return { type: "title", value: keyword };
-  }
-}
-
-/**
- * 按意图搜索（简化TMDB调用，确保返回数据）
- */
-async function searchByIntent(intent, params) {
-  const tmdbKey = params.TMDB_API_KEY;
-  const count = parseInt(params.recommendCount) || 6;
-  const results = [];
-
-  try {
-    // 1. 演员搜索（最常用，优先优化）
-    if (intent.type === "actor") {
-      // 搜索演员ID
-      const personRes = await safeRequest("https://api.themoviedb.org/3/search/person", {
-        params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" },
-      });
-      if (personRes.data.results?.length) {
-        const personId = personRes.data.results[0].id;
-        // 获取参演作品
-        const movieCredits = await safeRequest(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
-          params: { api_key: tmdbKey, language: "zh-CN" },
-        });
-        // 提取有效作品
-        const validWorks = (movieCredits.data.cast || [])
-          .filter(item => item.poster_path && !item.title.includes("合集") && !item.title.includes("纪录"))
-          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
-          .slice(0, count);
-        // 转换为Forward兼容格式
-        results.push(...validWorks.map(item => ({
-          id: `tmdb:movie:${item.id}`,
-          type: "video",
-          title: item.title,
-          description: item.overview || "暂无简介",
-          poster: IMAGE_BASE + item.poster_path,
-          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
-          year: (item.release_date || "").split("-")[0] || "未知",
-          rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
-          mediaType: "movie",
-          link: `tmdb:movie:${item.id}`,
-        })));
-      }
-    }
-
-    // 2. 降级：片名搜索（确保至少返回数据）
-    if (results.length === 0) {
-      const movieRes = await safeRequest("https://api.themoviedb.org/3/search/movie", {
-        params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" },
-      });
-      results.push(...(movieRes.data.results || []).slice(0, count).map(item => ({
-        id: `tmdb:movie:${item.id}`,
-        type: "video",
-        title: item.title,
-        description: item.overview || "暂无简介",
-        poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
-        backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
-        year: (item.release_date || "").split("-")[0] || "未知",
-        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
-        mediaType: "movie",
-        link: `tmdb:movie:${item.id}`,
-      })));
-    }
-
-    // 确保返回非空数组（避免"未能读取数据"）
-    return results.length ? results : [{
-      id: `default_${Date.now()}`,
-      type: "video",
-      title: "默认推荐",
-      description: "AI智能推荐影视",
-      poster: "https://picsum.photos/400/225",
-      backdrop: null,
-      year: "2024",
-      rating: 8.5,
-      mediaType: "movie",
-      link: "tmdb:movie:123",
-    }];
-  } catch (e) {
-    console.error("[搜索失败]", e.message);
-    // 强制返回默认数据，确保模块添加成功
-    return [{
-      id: `error_${Date.now()}`,
-      type: "video",
-      title: "加载成功",
-      description: "模块已添加，可正常使用",
-      poster: "https://picsum.photos/400/225?random=1",
-      backdrop: null,
-      year: "2024",
-      rating: 9.0,
-      mediaType: "movie",
-      link: "tmdb:movie:456",
-    }];
-  }
-}
-
-// ==================== 4. 模块核心函数（简化+容错）====================
-async function nlSearch(params = {}) {
-  try {
-    const intent = await parseQueryIntent(params);
-    return await searchByIntent(intent, params);
-  } catch (e) {
-    // 强制返回数据，避免模块添加失败
-    return [{
-      id: `search_${Date.now()}`,
-      type: "video",
-      title: "搜索可用",
-      description: "模块已添加，可输入关键词搜索",
-      poster: "https://picsum.photos/400/225?random=2",
-      backdrop: null,
-      year: "2024",
-      rating: 8.8,
-      mediaType: "movie",
-      link: "tmdb:movie:789",
-    }];
-  }
-}
-
-async function loadAIList(params = {}) {
-  try {
-    const intent = { type: "genre", value: params.prompt || "科幻片" };
-    return await searchByIntent(intent, params);
-  } catch (e) {
-    return [{
-      id: `recommend_${Date.now()}`,
-      type: "video",
-      title: "AI推荐",
-      description: "模块已添加，可输入类型推荐",
-      poster: "https://picsum.photos/400/225?random=3",
-      backdrop: null,
-      year: "2024",
-      rating: 8.6,
-      mediaType: "movie",
-      link: "tmdb:movie:101",
-    }];
-  }
-}
-
-async function loadSimilarList(params = {}) {
-  try {
-    const intent = { type: "similar", value: params.referenceTitle || "星际穿越" };
-    return await searchByIntent(intent, params);
-  } catch (e) {
-    return [{
-      id: `similar_${Date.now()}`,
-      type: "video",
-      title: "相似推荐",
-      description: "模块已添加，可输入喜欢的作品",
-      poster: "https://picsum.photos/400/225?random=4",
-      backdrop: null,
-      year: "2024",
-      rating: 8.7,
-      mediaType: "movie",
-      link: "tmdb:movie:102",
-    }];
-  }
-}
-
-// ==================== 5. 必需：详情加载（简化）====================
-async function loadDetail(item) {
-  return {
-    link: item.link || item.id,
-    playerType: "system",
+async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
+  var baseUrl = apiUrl.replace(/\/$/, '');
+  var fullUrl = baseUrl + '/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var promptText = "请推荐" + count + "部与「" + userPrompt + "」相关的影视作品。\n\n【输出要求】\n1. 只返回剧名，每行一个\n2. 不要添加任何序号、标点或额外文字";
+  
+  var requestBody = {
+    contents: [{ parts: [{ text: promptText }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 800 }
   };
+  
+  var response = await Widget.http.post(fullUrl, requestBody, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+  var content = "";
+  if (response && response.candidates && response.candidates[0]) {
+    content = response.candidates[0].content.parts[0].text || "";
+  }
+  return content;
 }
 
-// 强制输出加载成功日志
-console.log("AI影视推荐模块 v7.1.0 加载成功 ✅");
+function extractContent(response) {
+  if (!response) return "";
+  var data = response.data || response;
+  if (data.choices && data.choices[0]) {
+    var choice = data.choices[0];
+    return choice.message ? choice.message.content : (choice.text || "");
+  }
+  return typeof response === 'string' ? response : "";
+}
+
+async function callAI(config) {
+  var { apiUrl, apiKey, model, format, prompt, count } = config;
+  try {
+    if (format === "gemini") {
+      return await callGeminiFormat(apiUrl, apiKey, model, prompt, count);
+    } else {
+      var systemPrompt = "你是一个影视推荐助手。请根据用户的需求，推荐" + count + "部合适的影视作品。只返回剧名，每行一个，不要解释。";
+      var messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: "我想找关于「" + prompt + "」的作品" }
+      ];
+      var response = await callOpenAIFormat(apiUrl, apiKey, model, messages, 0.5, 500);
+      return extractContent(response);
+    }
+  } catch (error) { throw new Error("AI服务请求失败: " + error.message); }
+}
+
+// ==================== 3. 工具函数 (保持不变) ====================
+
+function parseNames(content) {
+  if (!content) return [];
+  var names = [];
+  var lines = content.split("\n");
+  for (var line of lines) {
+    line = line.replace(/^[\d\+\-\*•\s\.、，]*|《|》|""|''|「|」|\[|\]|【|】|\(.*?\)|（.*?）/g, '').trim();
+    if (line && line.length >= 2 && line.length <= 40) names.push(line);
+  }
+  return [...new Set(names)];
+}
+
+async function getTmdbDetail(title, mediaType, apiKey) {
+  if (!title) return null;
+  try {
+    var responseData;
+    if (apiKey) {
+      var response = await Widget.http.get("https://api.themoviedb.org/3/search/" + mediaType, { 
+        params: { api_key: apiKey, query: title, language: "zh-CN" },
+        timeout: 10000
+      });
+      responseData = response.data;
+    } else {
+      responseData = await Widget.tmdb.get("/search/" + mediaType, { params: { query: title, language: "zh-CN" } });
+    }
+    if (!responseData || !responseData.results || responseData.results.length === 0) return null;
+    var item = responseData.results[0];
+    return {
+      id: item.id,
+      type: "tmdb",
+      title: item.title || item.name,
+      description: item.overview || "",
+      posterPath: item.poster_path,
+      backdropPath: item.backdrop_path,
+      releaseDate: item.release_date || item.first_air_date || "",
+      rating: item.vote_average || 0,
+      mediaType: mediaType
+    };
+  } catch (e) { return null; }
+}
+
+// ==================== 4. 列表加载与搜索函数 ====================
+
+// 新增：全局搜索执行函数
+async function searchAI(params) {
+  // 搜索框输入的词在 keyword 或 query 字段中
+  const keyword = (params.keyword || params.query || "").trim();
+  if (!keyword) return [];
+
+  // 将 keyword 传入 AI 处理逻辑
+  return await commonLoadLogic(params, keyword);
+}
+
+async function loadAIList(params) {
+  return await commonLoadLogic(params, params.prompt);
+}
+
+async function loadSimilarList(params) {
+  const ref = params.referenceTitle || "";
+  return await commonLoadLogic(params, "类似《" + ref + "》的作品");
+}
+
+/**
+ * 核心逻辑复用：调用 AI -> 解析剧名 -> TMDB 补全
+ */
+async function commonLoadLogic(params, promptText) {
+  if (!promptText) throw new Error("请输入搜索内容");
+
+  var aiConfig = {
+    apiUrl: params.aiApiUrl || "",
+    apiKey: params.aiApiKey || "",
+    model: params.aiModel || "",
+    format: params.aiApiFormat || "openai",
+    prompt: promptText,
+    count: parseInt(params.recommendCount) || 10
+  };
+  
+  var tmdbKey = params.TMDB_API_KEY || "";
+  
+  // 1. 调用 AI 获取名字
+  var content = await callAI(aiConfig);
+  var names = parseNames(content).slice(0, aiConfig.count);
+  
+  if (names.length === 0) throw new Error("AI未能解析到结果");
+
+  // 2. 并行查询 TMDB 详情
+  var results = await Promise.all(names.map(async (name) => {
+    // 先查 TV，没查到再查 Movie
+    let detail = await getTmdbDetail(name, "tv", tmdbKey);
+    if (!detail) detail = await getTmdbDetail(name, "movie", tmdbKey);
+    return detail;
+  }));
+
+  var validResults = results.filter(r => r !== null);
+  
+  // 如果 TMDB 没搜到，至少返回文字结果防止空白
+  if (validResults.length === 0) {
+    return names.map((name, i) => ({
+      id: "ai_" + i + Date.now(),
+      type: "tmdb",
+      title: name,
+      description: "AI 推荐结果",
+      mediaType: "movie"
+    }));
+  }
+  
+  return validResults;
+}
+
+console.log("AI影视推荐与搜索模块 v5.0.0 加载成功");
