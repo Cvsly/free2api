@@ -1,22 +1,22 @@
 /**
- * AI 影视推荐模块（方案A：全局搜索演员优先）
+ * AI 影视推荐模块（参考官方模块优化搜索）
  * 支持OpenAI/Gemini/硅基流动/NewApi等接口
- * 适配Forward官方搜索规范，接管全局搜索，优先返回演员作品
+ * 完全适配Forward官方搜索逻辑，自然语言解析+精准匹配
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 const BACKDROP_BASE = "https://image.tmdb.org/t/p/original";
 
-// ==================== 1. Metadata 定义 ====================
+// ==================== 1. Metadata 定义（完全参考官方）====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "AI智能推荐+相似推荐+全局演员优先搜索",
+  description: "自然语言描述需求，AI解析意图后精准匹配影视",
   author: "crush7s",
   site: "https://github.com/InchStudio/ForwardWidgets",
-  version: "6.0.0",
-  requiredVersion: "0.0.2",
+  version: "7.0.0",
+  requiredVersion: "0.0.1",
   detailCacheDuration: 3600,
   
   globalParams: [
@@ -72,7 +72,7 @@ var WidgetMetadata = {
       title: "TMDB API Key",
       type: "input",
       required: true,
-      description: "在 themoviedb.org 获取的API Key（演员搜索必需）",
+      description: "在 themoviedb.org 获取的API Key（必需）",
       placeholders: [
         { title: "示例 Key", value: "c5efdaca8be081f824c3201b3fb00670" },
       ],
@@ -142,20 +142,21 @@ var WidgetMetadata = {
     },
   ],
   
-  // 接管全局搜索：演员优先
+  // 全局搜索：完全参考官方模块的nlSearch逻辑
   search: {
     title: "AI 影视搜索",
-    functionName: "actorFirstSearch",
+    functionName: "nlSearch",
     params: [
       {
-        name: "query",
-        title: "搜索",
+        name: "keyword",
+        title: "搜索关键词",
         type: "input",
-        description: "输入演员名/片名/类型，优先返回演员作品",
+        description: "用自然语言描述，AI 帮你找片",
         placeholders: [
-          { title: "周星驰", value: "周星驰" },
-          { title: "科幻片", value: "科幻片" },
-          { title: "诺兰", value: "诺兰" },
+          { title: "去年高分科幻片", value: "去年高分科幻片" },
+          { title: "诺兰的电影", value: "诺兰的电影" },
+          { title: "类似盗梦空间", value: "类似盗梦空间" },
+          { title: "周星驰参演的喜剧", value: "周星驰参演的喜剧" },
         ],
       },
     ],
@@ -163,7 +164,7 @@ var WidgetMetadata = {
 };
 
 // ==================== 2. AI API 适配器 ====================
-async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens) {
+async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature) {
   var headers = { "Content-Type": "application/json" };
   if (apiKey) {
     headers["Authorization"] = apiKey.startsWith('Bearer ') ? apiKey : "Bearer " + apiKey;
@@ -171,20 +172,17 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, ma
   var response = await Widget.http.post(apiUrl, {
     model: model,
     messages: messages,
-    max_tokens: maxTokens || 500,
-    temperature: temperature || 0.5,
+    temperature: temperature || 0.3, // 降低随机性，提高解析准确性
   }, { headers, timeout: 60000 });
   return response;
 }
 
-async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
+async function callGeminiFormat(apiUrl, apiKey, model, prompt) {
   var baseUrl = apiUrl.replace(/\/$/, '');
   var fullUrl = baseUrl + '/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
-  var promptText = "请推荐" + count + "部符合「" + userPrompt + "」的影视作品。\n【输出要求】\n1.只返回剧名，每行一个\n2.不要序号标点年份类型\n3.不要任何解释\n4.直接输出剧名列表";
-  
   var requestBody = {
-    contents: [{ parts: [{ text: promptText }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
     safetySettings: [
       { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
       { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -192,7 +190,6 @@ async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
       { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
     ]
   };
-
   var response = await Widget.http.post(fullUrl, requestBody, { timeout: 60000 });
   var content = "";
   if (response.candidates?.[0]?.content?.parts?.[0]) {
@@ -203,228 +200,351 @@ async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
   return content;
 }
 
-function extractContent(response) {
-  if (!response) return "";
-  if (response.choices?.[0]?.message?.content) return response.choices[0].message.content;
-  if (response.choices?.[0]?.text) return response.choices[0].text;
-  if (response.data?.choices?.[0]?.message?.content) return response.data.choices[0].message.content;
-  if (typeof response === 'string') return response;
-  return "";
-}
+// ==================== 3. 核心：自然语言解析（参考官方逻辑）====================
+/**
+ * 解析用户自然语言查询，提取核心意图（演员/导演/类型/年份/相似作品）
+ */
+async function parseQueryIntent(params) {
+  const keyword = (params.keyword || params.query || "").trim();
+  const aiApiUrl = params.aiApiUrl;
+  const aiApiKey = params.aiApiKey;
+  const aiModel = params.aiModel;
+  const aiFormat = params.aiApiFormat || "openai";
 
-async function callAI(config) {
-  var { apiUrl, apiKey, model, format, prompt, count } = config;
-  var content = "";
-
-  if (format === "gemini") {
-    content = await callGeminiFormat(apiUrl, apiKey, model, prompt, count);
-  } else {
-    var system = "你是专业影视推荐助手，精准理解用户自然语言需求。只返回剧名，每行一个，无序号无标点无任何解释。";
-    var user = "请推荐" + count + "部符合「" + prompt + "」的影视作品";
-    var msg = [{ role: "system", content: system }, { role: "user", content: user }];
-    var res = await callOpenAIFormat(apiUrl, apiKey, model, msg, 0.5, 300);
-    content = extractContent(res);
-  }
-
-  if (!content?.trim()) throw new Error("AI返回内容为空，请检查API配置");
-  return content;
-}
-
-// ==================== 3. 工具函数 ====================
-function parseNames(content) {
-  if (!content) return [];
-  var lines = content.split("\n");
-  var names = [];
-  for (var l of lines) {
-    var line = l.trim()
-      .replace(/^[\d\.\-\*•\s]+/, "")
-      .replace(/[《》【】\[\]""''()]/g, "")
-      .trim();
-    if (line.length >= 2 && line.length <= 40) names.push(line);
-  }
-  return [...new Set(names)];
-}
-
-// 演员搜索 → 获取演员作品
-async function getActorWorks(actorName, apiKey, count) {
-  if (!actorName || !apiKey) return [];
-  try {
-    // 1. 搜索演员
-    var personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
-      params: { 
-        api_key: apiKey, 
-        query: actorName, 
-        language: "zh-CN",
-        include_adult: false
-      },
-      headers: { "User-Agent": USER_AGENT },
-      timeout: 10000
-    });
-
-    if (!personRes.data.results?.length) return [];
-    var personId = personRes.data.results[0].id;
-
-    // 2. 获取演员参演电影 + 剧集
-    var [movieCredits, tvCredits] = await Promise.all([
-      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
-        params: { api_key: apiKey, language: "zh-CN" },
-        headers: { "User-Agent": USER_AGENT }
-      }),
-      Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
-        params: { api_key: apiKey, language: "zh-CN" },
-        headers: { "User-Agent": USER_AGENT }
-      })
-    ]);
-
-    var works = [];
-    // 合并并过滤无效结果
-    if (movieCredits.data.cast) {
-      works = works.concat(
-        movieCredits.data.cast
-          .filter(i => !i.title?.includes("合集") && !i.title?.includes("纪录"))
-          .map(i => ({...i, media_type: "movie"}))
-      );
-    }
-    if (tvCredits.data.cast) {
-      works = works.concat(
-        tvCredits.data.cast
-          .filter(i => !i.name?.includes("合集") && !i.name?.includes("纪录"))
-          .map(i => ({...i, media_type: "tv"}))
-      );
-    }
-    
-    works.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
-    works = works.slice(0, count);
-
-    // 3. 转换为 Forward 格式
-    return works.map(d => ({
-      id: `tmdb:${d.media_type}:${d.id}`,
-      type: "video",
-      title: d.title || d.name,
-      description: d.overview || "暂无影片简介",
-      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
-      backdrop: d.backdrop_path ? BACKDROP_BASE + d.backdrop_path : null,
-      year: (d.release_date || d.first_air_date || "").split("-")[0] || "未知",
-      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
-      mediaType: d.media_type,
-      link: `tmdb:${d.media_type}:${d.id}`,
-    }));
-  } catch (e) {
-    console.error(`[演员搜索失败] ${actorName}: ${e.message}`);
-    return [];
-  }
-}
-
-// 原有的片名搜索
-async function getTmdbDetail(title, mediaType, apiKey) {
-  if (!title) return null;
-  var t = title.replace(/[（(].*[)）]/g, "").replace(/\s+/g, " ").trim();
+  // 参考官方模块：用LLM解析意图，返回结构化数据
+  const systemPrompt = `你是影视搜索意图解析专家，需精准分析用户查询的核心需求，返回JSON格式，字段说明：
+  - type: 搜索类型（actor=演员参演/ director=导演作品/ genre=类型/ similar=相似作品/ title=片名/ mixed=混合需求）
+  - value: 核心值（如演员名/导演名/类型/参考片名）
+  - filters: 过滤条件（对象，可选，如{year: "2023-2025", rating: ">8.0"}）
+  示例1：查询"周星驰的喜剧" → {"type":"actor","value":"周星驰","filters":{"genre":"喜剧"}}
+  示例2：查询"诺兰执导的科幻片" → {"type":"director","value":"诺兰","filters":{"genre":"科幻"}}
+  示例3：查询"类似盗梦空间的悬疑片" → {"type":"similar","value":"盗梦空间","filters":{"genre":"悬疑"}}
+  示例4：查询"2024年高分科幻片" → {"type":"genre","value":"科幻","filters":{"year":"2024","rating":">8.0"}}
+  只返回JSON，不要任何额外文字！`;
 
   try {
-    var res, responseData;
-    if (apiKey) {
-      res = await Widget.http.get("https://api.themoviedb.org/3/search/" + mediaType, {
-        params: { api_key: apiKey, query: t, language: "zh-CN", include_adult: false },
-        headers: { "User-Agent": USER_AGENT },
-        timeout: 10000
-      });
-      responseData = res.data;
+    let intentJson;
+    if (aiFormat === "gemini") {
+      const prompt = `${systemPrompt}\n用户查询：${keyword}`;
+      const content = await callGeminiFormat(aiApiUrl, aiApiKey, aiModel, prompt);
+      intentJson = JSON.parse(content.replace(/```json|```/g, "").trim());
     } else {
-      responseData = await Widget.tmdb.get("/search/" + mediaType, { params: { query: t, language: "zh-CN" } });
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: keyword }
+      ];
+      const response = await callOpenAIFormat(aiApiUrl, aiApiKey, aiModel, messages);
+      const content = response.data.choices[0].message.content;
+      intentJson = JSON.parse(content.replace(/```json|```/g, "").trim());
     }
-
-    if (!responseData.results?.length) return null;
-    var d = responseData.results[0];
-
-    return {
-      id: `tmdb:${mediaType}:${d.id}`,
-      type: "video",
-      title: d.title || d.name,
-      description: d.overview || "暂无影片简介",
-      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
-      backdrop: d.backdrop_path ? BACKDROP_BASE + d.backdrop_path : null,
-      year: (d.release_date || d.first_air_date || "").split("-")[0] || "未知",
-      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
-      mediaType: mediaType,
-      link: `tmdb:${mediaType}:${d.id}`,
-    };
+    return intentJson || {};
   } catch (e) {
-    console.error(`[TMDB查询失败] 标题：${title}，类型：${mediaType}，错误：${e.message}`);
-    return null;
+    console.error("[意图解析失败]", e.message);
+    // 降级：默认按片名搜索
+    return { type: "title", value: keyword };
   }
 }
 
-// ==================== 4. 核心：全局搜索（演员优先） ====================
-async function actorFirstSearch(params = {}) {
-  const keyword = (params.query || "").trim();
-  if (!keyword) return []; // 空查询直接返回空，避免报错
-  
+// ==================== 4. 精准搜索实现（按意图匹配）====================
+async function searchByIntent(intent, params) {
   const tmdbKey = params.TMDB_API_KEY;
   const count = parseInt(params.recommendCount) || 9;
+  const filters = intent.filters || {};
+  const results = [];
 
-  // 1. 优先识别演员名，返回演员作品
-  const isChineseName = /^[\u4e00-\u9fa5]{2,}$/.test(keyword);
-  const isEnglishName = /^[A-Za-z\s]{2,}$/.test(keyword);
-  if ((isChineseName || isEnglishName) && tmdbKey) {
-    const actorWorks = await getActorWorks(keyword, tmdbKey, count);
-    if (actorWorks.length > 0) return actorWorks;
-  }
+  try {
+    // 1. 演员参演作品
+    if (intent.type === "actor") {
+      const personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
+        params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" },
+        headers: { "User-Agent": USER_AGENT }
+      });
+      if (personRes.data.results?.length) {
+        const personId = personRes.data.results[0].id;
+        const [movieCredits, tvCredits] = await Promise.all([
+          Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
+            params: { api_key: tmdbKey, language: "zh-CN" }
+          }),
+          Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
+            params: { api_key: tmdbKey, language: "zh-CN" }
+          })
+        ]);
+        // 合并并过滤
+        const works = [...(movieCredits.data.cast || []), ...(tvCredits.data.cast || [])]
+          .filter(item => {
+            // 过滤合集/纪录片
+            if (item.title?.includes("合集") || item.name?.includes("合集") || item.title?.includes("纪录")) return false;
+            // 过滤年份
+            if (filters.year) {
+              const [minYear, maxYear] = filters.year.split("-").map(Number);
+              const itemYear = item.release_date ? item.release_date.split("-")[0] : item.first_air_date?.split("-")[0];
+              if (itemYear && (itemYear < minYear || itemYear > maxYear)) return false;
+            }
+            // 过滤评分
+            if (filters.rating) {
+              const ratingThreshold = parseFloat(filters.rating.replace(">", ""));
+              if (item.vote_average < ratingThreshold) return false;
+            }
+            // 过滤类型
+            if (filters.genre) {
+              const genreLower = filters.genre.toLowerCase();
+              return item.genre_ids?.some(gid => {
+                const genreMap = {
+                  28: "动作", 12: "冒险", 16: "动画", 35: "喜剧", 80: "犯罪",
+                  99: "纪录片", 18: "剧情", 10751: "家庭", 14: "奇幻", 36: "历史",
+                  27: "恐怖", 10402: "音乐", 9648: "悬疑", 10749: "爱情", 878: "科幻",
+                  10770: "电视电影", 53: "惊悚", 10752: "战争", 37: "西部"
+                };
+                return genreMap[gid]?.toLowerCase().includes(genreLower);
+              });
+            }
+            return true;
+          })
+          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+          .slice(0, count);
+        // 转换格式
+        results.push(...works.map(item => ({
+          id: `tmdb:${item.media_type || (item.title ? "movie" : "tv")}:${item.id}`,
+          type: "video",
+          title: item.title || item.name,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: (item.release_date || item.first_air_date || "").split("-")[0] || "未知",
+          rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
+          mediaType: item.media_type || (item.title ? "movie" : "tv"),
+          link: `tmdb:${item.media_type || (item.title ? "movie" : "tv")}:${item.id}`,
+        })));
+      }
+    }
 
-  // 2. 非演员名 → 走 TMDB 片名搜索
-  if (!tmdbKey) {
-    throw new Error("请配置 TMDB API Key 以使用搜索功能");
-  }
+    // 2. 导演作品（补充导演搜索，参考官方示例）
+    else if (intent.type === "director") {
+      // 先搜索导演ID
+      const personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
+        params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" }
+      });
+      if (personRes.data.results?.length) {
+        const personId = personRes.data.results[0].id;
+        // 搜索导演参与的电影/剧集
+        const [movieCredits, tvCredits] = await Promise.all([
+          Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
+            params: { api_key: tmdbKey, language: "zh-CN" }
+          }),
+          Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
+            params: { api_key: tmdbKey, language: "zh-CN" }
+          })
+        ]);
+        // 筛选导演身份的作品
+        const directedWorks = [
+          ...(movieCredits.data.crew?.filter(c => c.job === "Director") || []),
+          ...(tvCredits.data.crew?.filter(c => c.job === "Director") || [])
+        ]
+          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+          .slice(0, count);
+        results.push(...directedWorks.map(item => ({
+          id: `tmdb:${item.media_type || (item.title ? "movie" : "tv")}:${item.id}`,
+          type: "video",
+          title: item.title || item.name,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: (item.release_date || item.first_air_date || "").split("-")[0] || "未知",
+          rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0,
+          mediaType: item.media_type || (item.title ? "movie" : "tv"),
+          link: `tmdb:${item.media_type || (item.title ? "movie" : "tv")}:${item.id}`,
+        })));
+      }
+    }
 
-  const [movieRes, tvRes] = await Promise.all([
-    Widget.http.get("https://api.themoviedb.org/3/search/movie", {
-      params: { api_key: tmdbKey, query: keyword, language: "zh-CN" },
-      headers: { "User-Agent": USER_AGENT },
-    }),
-    Widget.http.get("https://api.themoviedb.org/3/search/tv", {
-      params: { api_key: tmdbKey, query: keyword, language: "zh-CN" },
-      headers: { "User-Agent": USER_AGENT },
-    }),
-  ]);
+    // 3. 类型搜索
+    else if (intent.type === "genre") {
+      const genreMap = {
+        "动作": 28, "冒险": 12, "动画": 16, "喜剧": 35, "犯罪": 80,
+        "纪录片": 99, "剧情": 18, "家庭": 10751, "奇幻": 14, "历史": 36,
+        "恐怖": 27, "音乐": 10402, "悬疑": 9648, "爱情": 10749, "科幻": 878,
+        "惊悚": 53, "战争": 10752, "西部": 37
+      };
+      const genreId = genreMap[intent.value] || "";
+      if (genreId) {
+        const [movieRes, tvRes] = await Promise.all([
+          Widget.http.get("https://api.themoviedb.org/3/discover/movie", {
+            params: {
+              api_key: tmdbKey, language: "zh-CN",
+              with_genres: genreId,
+              primary_release_year: filters.year ? filters.year.split("-")[0] : "",
+              vote_average.gte: filters.rating ? filters.rating.replace(">", "") : 6.0,
+              sort_by: "popularity.desc"
+            }
+          }),
+          Widget.http.get("https://api.themoviedb.org/3/discover/tv", {
+            params: {
+              api_key: tmdbKey, language: "zh-CN",
+              with_genres: genreId,
+              first_air_year: filters.year ? filters.year.split("-")[0] : "",
+              vote_average.gte: filters.rating ? filters.rating.replace(">", "") : 6.0,
+              sort_by: "popularity.desc"
+            }
+          })
+        ]);
+        results.push(...(movieRes.data.results || []).map(item => ({
+          id: `tmdb:movie:${item.id}`,
+          type: "video",
+          title: item.title,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: item.release_date.split("-")[0] || "未知",
+          rating: parseFloat(item.vote_average.toFixed(1)),
+          mediaType: "movie",
+          link: `tmdb:movie:${item.id}`,
+        })));
+        results.push(...(tvRes.data.results || []).map(item => ({
+          id: `tmdb:tv:${item.id}`,
+          type: "video",
+          title: item.name,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: item.first_air_date.split("-")[0] || "未知",
+          rating: parseFloat(item.vote_average.toFixed(1)),
+          mediaType: "tv",
+          link: `tmdb:tv:${item.id}`,
+        })));
+      }
+    }
 
-  const items = [];
-  if (movieRes.data.results) {
-    items.push(...movieRes.data.results.map(d => ({
-      id: `tmdb:movie:${d.id}`,
+    // 4. 相似作品（参考官方示例）
+    else if (intent.type === "similar") {
+      // 先搜索参考作品ID
+      const [movieRes, tvRes] = await Promise.all([
+        Widget.http.get("https://api.themoviedb.org/3/search/movie", {
+          params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" }
+        }),
+        Widget.http.get("https://api.themoviedb.org/3/search/tv", {
+          params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" }
+        })
+      ]);
+      if (movieRes.data.results?.length) {
+        const movieId = movieRes.data.results[0].id;
+        const similarRes = await Widget.http.get(`https://api.themoviedb.org/3/movie/${movieId}/similar`, {
+          params: { api_key: tmdbKey, language: "zh-CN" }
+        });
+        results.push(...(similarRes.data.results || []).map(item => ({
+          id: `tmdb:movie:${item.id}`,
+          type: "video",
+          title: item.title,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: item.release_date.split("-")[0] || "未知",
+          rating: parseFloat(item.vote_average.toFixed(1)),
+          mediaType: "movie",
+          link: `tmdb:movie:${item.id}`,
+        })));
+      } else if (tvRes.data.results?.length) {
+        const tvId = tvRes.data.results[0].id;
+        const similarRes = await Widget.http.get(`https://api.themoviedb.org/3/tv/${tvId}/similar`, {
+          params: { api_key: tmdbKey, language: "zh-CN" }
+        });
+        results.push(...(similarRes.data.results || []).map(item => ({
+          id: `tmdb:tv:${item.id}`,
+          type: "video",
+          title: item.name,
+          description: item.overview || "暂无简介",
+          poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+          backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+          year: item.first_air_date.split("-")[0] || "未知",
+          rating: parseFloat(item.vote_average.toFixed(1)),
+          mediaType: "tv",
+          link: `tmdb:tv:${item.id}`,
+        })));
+      }
+    }
+
+    // 5. 片名/混合搜索（降级）
+    else {
+      const [movieRes, tvRes] = await Promise.all([
+        Widget.http.get("https://api.themoviedb.org/3/search/movie", {
+          params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" }
+        }),
+        Widget.http.get("https://api.themoviedb.org/3/search/tv", {
+          params: { api_key: tmdbKey, query: intent.value, language: "zh-CN" }
+        })
+      ]);
+      results.push(...(movieRes.data.results || []).map(item => ({
+        id: `tmdb:movie:${item.id}`,
+        type: "video",
+        title: item.title,
+        description: item.overview || "暂无简介",
+        poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+        backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+        year: item.release_date.split("-")[0] || "未知",
+        rating: parseFloat(item.vote_average.toFixed(1)),
+        mediaType: "movie",
+        link: `tmdb:movie:${item.id}`,
+      })));
+      results.push(...(tvRes.data.results || []).map(item => ({
+        id: `tmdb:tv:${item.id}`,
+        type: "video",
+        title: item.name,
+        description: item.overview || "暂无简介",
+        poster: item.poster_path ? IMAGE_BASE + item.poster_path : null,
+        backdrop: item.backdrop_path ? BACKDROP_BASE + item.backdrop_path : null,
+        year: item.first_air_date.split("-")[0] || "未知",
+        rating: parseFloat(item.vote_average.toFixed(1)),
+        mediaType: "tv",
+        link: `tmdb:tv:${item.id}`,
+      })));
+    }
+
+    // 去重+过滤+排序
+    const uniqueResults = Array.from(new Map(results.map(item => [item.id, item])).values())
+      .filter(item => !item.title.includes("合集") && !item.title.includes("纪录"))
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, count);
+
+    return uniqueResults.length ? uniqueResults : [{
+      id: `no_result_${Date.now()}`,
       type: "video",
-      title: d.title,
-      description: d.overview,
-      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
-      year: (d.release_date || "").split("-")[0] || "未知",
-      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
+      title: "未找到匹配结果",
+      description: "请尝试调整关键词或搜索条件",
+      poster: null,
+      backdrop: null,
+      year: "",
+      rating: 0,
       mediaType: "movie",
-      link: `tmdb:movie:${d.id}`,
-    })));
+      link: "no-source",
+    }];
+  } catch (e) {
+    console.error("[精准搜索失败]", e.message);
+    throw new Error(`搜索失败：${e.message}`);
   }
-  if (tvRes.data.results) {
-    items.push(...tvRes.data.results.map(d => ({
-      id: `tmdb:tv:${d.id}`,
-      type: "video",
-      title: d.name,
-      description: d.overview,
-      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
-      year: (d.first_air_date || "").split("-")[0] || "未知",
-      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
-      mediaType: "tv",
-      link: `tmdb:tv:${d.id}`,
-    })));
-  }
-
-  // 过滤合集/纪录片，按评分排序
-  return items
-    .filter(i => !i.title?.includes("合集") && !i.title?.includes("纪录"))
-    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, count);
 }
 
-// ==================== 5. 保留原核心功能：AI智能推荐 ====================
+// ==================== 5. 全局搜索入口（完全参考官方nlSearch）====================
+async function nlSearch(params = {}) {
+  const keyword = (params.keyword || params.query || "").trim();
+  if (!keyword) throw new Error("请输入搜索描述");
+
+  try {
+    // 1. 解析意图（参考官方：LLM解析+精准匹配）
+    const intent = await parseQueryIntent(params);
+    console.log("[搜索意图]", JSON.stringify(intent));
+
+    // 2. 按意图搜索
+    const results = await searchByIntent(intent, params);
+    return results;
+  } catch (error) {
+    console.error("[AI搜索] 请求失败:", error.message || error);
+    throw new Error("AI 搜索服务暂时不可用，请稍后再试");
+  }
+}
+
+// ==================== 6. 保留原核心功能：AI智能推荐 ====================
 async function loadAIList(params) {
   try {
-    var cfg = {
+    const cfg = {
       apiUrl: params.aiApiUrl,
       apiKey: params.aiApiKey,
       model: params.aiModel,
@@ -432,72 +552,39 @@ async function loadAIList(params) {
       prompt: params.prompt,
       count: +params.recommendCount || 9
     };
-    var tk = params.TMDB_API_KEY;
+    const tmdbKey = params.TMDB_API_KEY;
     if (!cfg.prompt) throw new Error("请输入想看的影视类型");
 
-    var raw = await callAI(cfg);
-    var names = parseNames(raw).slice(0, cfg.count);
-    var items = await Promise.all(names.map(n => getTmdbDetail(n, "movie", tk).then(x=>x||getTmdbDetail(n,"tv",tk))));
-    var valid = items.filter(Boolean);
-
-    return valid.length ? valid : names.map((n,i)=>({
-      id: `ai_type_${i}`,
-      type:"video",
-      title:n,
-      description:"AI类型推荐 | 暂无TMDB详情",
-      poster:null,
-      backdrop:null,
-      year:"未知",
-      rating:0,
-      link: `ai_type_${n}`,
-      mediaType:"movie"
-    }));
-  } catch (e) { 
+    // 用意图解析逻辑优化推荐
+    const intent = { type: "genre", value: cfg.prompt };
+    const results = await searchByIntent(intent, params);
+    return results;
+  } catch (e) {
     console.error("[AI智能推荐失败]:", e.message);
-    throw e; 
+    throw e;
   }
 }
 
-// ==================== 6. 保留原核心功能：相似推荐 ====================
+// ==================== 7. 保留原核心功能：相似推荐 ====================
 async function loadSimilarList(params) {
   try {
-    var refTitle = params.referenceTitle?.trim();
+    const refTitle = params.referenceTitle?.trim();
     if (!refTitle) throw new Error("请输入喜欢的影视作品名称");
 
-    var cfg = {
-      apiUrl: params.aiApiUrl,
-      apiKey: params.aiApiKey,
-      model: params.aiModel,
-      format: params.aiApiFormat,
-      prompt: `类似《${refTitle}》的影视作品`,
-      count: +params.recommendCount ||9
-    };
-    var tk = params.TMDB_API_KEY;
-    
-    var raw = await callAI(cfg);
-    var names = parseNames(raw).slice(0, cfg.count);
-    var items = await Promise.all(names.map(n=>getTmdbDetail(n,"movie",tk).then(x=>x||getTmdbDetail(n,"tv",tk))));
-    var valid = items.filter(Boolean);
+    const tmdbKey = params.TMDB_API_KEY;
+    const count = +params.recommendCount || 9;
 
-    return valid.length ? valid : names.map((n,i)=>({
-      id:`ai_sim_${i}`,
-      type:"video",
-      title:n,
-      description:`类似《${refTitle}》| 暂无TMDB详情`,
-      poster:null,
-      backdrop:null,
-      year:"未知",
-      rating:0,
-      link: `ai_sim_${n}`,
-      mediaType:"movie"
-    }));
-  } catch(e){ 
+    // 用意图解析逻辑优化相似推荐
+    const intent = { type: "similar", value: refTitle };
+    const results = await searchByIntent(intent, params);
+    return results;
+  } catch (e) {
     console.error("[相似推荐失败]:", e.message);
-    throw e; 
+    throw e;
   }
 }
 
-// ==================== 7. Forward必需：详情加载与播放 ====================
+// ==================== 8. Forward必需：详情加载与播放 ====================
 async function loadDetail(item) {
   return {
     link: item.link || item.id,
@@ -505,4 +592,4 @@ async function loadDetail(item) {
   };
 }
 
-console.log("AI影视推荐模块 v6.0.0 加载成功 ✅（全局搜索演员优先）");
+console.log("AI影视推荐模块 v7.0.0 加载成功 ✅（参考官方模块优化搜索）");
