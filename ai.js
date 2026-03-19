@@ -1,7 +1,7 @@
 /**
  * AI 影视推荐与智能搜索模块
  * 支持 OpenAI / Gemini / 硅基流动 / NewApi 等接口
- * 版本：5.1.0 (智能搜索增强版)
+ * 版本：5.1.0 (智能搜索 & 废话过滤增强版)
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -24,7 +24,7 @@ var WidgetMetadata = {
       type: "input",
       required: true,
       defaultValue: "https://api.siliconflow.cn/v1/chat/completions",
-      description: "推荐使用硅基流动",
+      description: "推荐使用硅基流动或 Gemini",
       placeholders: [
         { title: "硅基流动", value: "https://api.siliconflow.cn/v1/chat/completions" },
         { title: "OpenAI 官方", value: "https://api.openai.com/v1/chat/completions" },
@@ -76,16 +76,16 @@ var WidgetMetadata = {
     },
   ],
   
-  // 全局搜索定义
+  // 全局搜索配置
   search: {
     title: "AI 智能搜索",
     functionName: "searchAI",
     params: [
       {
         name: "keyword",
-        title: "想找什么？",
+        title: "描述你想看的内容",
         type: "input",
-        description: "用自然语言描述（如：类似《三体》的剧，周星驰的经典电影）",
+        description: "支持自然语言（如：类似《大话西游》的喜剧，周星驰高分代表作）",
       },
     ],
   },
@@ -106,7 +106,7 @@ var WidgetMetadata = {
   ],
 };
 
-// ==================== 2. AI API 适配层 ====================
+// ==================== 2. AI API 核心层 ====================
 
 async function callAI(config) {
   var { apiUrl, apiKey, model, format, prompt, count } = config;
@@ -115,13 +115,13 @@ async function callAI(config) {
     if (format === "gemini") {
       return await callGeminiFormat(apiUrl, apiKey, model, prompt, count);
     } else {
-      // 深度优化的系统提示词：强制数据库模式，消除废话
-      var systemPrompt = "你是一个专业的影视数据库接口。请根据用户描述提供 " + count + " 个最相关的影视作品名称。\n" +
-        "【绝对禁令】\n" +
-        "1. 禁止输出任何解释、道歉、开场白（如“作为一个AI助手...”）或结尾文字。\n" +
-        "2. 只返回具体的单体作品名称，严禁返回“XX合集”、“XX系列”或“XX纪录片”。\n" +
-        "3. 如果没有结果，请直接留空，不要说明原因。\n" +
-        "4. 每行只输出一个剧名，无标点符号。";
+      // 深度优化的系统提示词：强制“数据库模式”，消除 AI 的礼貌废话
+      var systemPrompt = "你是一个影视数据库。根据用户指令提供 " + count + " 个最相关的影视作品名称。\n" +
+        "【严禁行为】\n" +
+        "1. 禁止输出任何开场白、道歉、解释（如“非常抱歉”、“作为一个AI助手...”）。\n" +
+        "2. 只能输出单体作品名（如《功夫》），严禁输出“XX合集”、“XX纪录片”、“XX系列”。\n" +
+        "3. 每行只写一个剧名，禁止带标点符号、序号或年份。\n" +
+        "4. 如果无法匹配，请保持沉默（直接输出空）。";
       
       var messages = [
         { role: "system", content: systemPrompt },
@@ -134,21 +134,21 @@ async function callAI(config) {
       var response = await Widget.http.post(apiUrl, {
         model: model,
         messages: messages,
-        max_tokens: 500,
-        temperature: 0.2, // 降低随机性，确保结果稳定
+        max_tokens: 400,
+        temperature: 0.1, // 降低随机性，让输出更干净
       }, { headers: headers, timeout: 60000 });
 
       return extractContent(response);
     }
   } catch (error) {
-    throw new Error("AI服务请求失败: " + error.message);
+    throw new Error("AI服务异常: " + error.message);
   }
 }
 
 function extractContent(response) {
   var data = response.data || response;
   if (data.choices && data.choices[0]) {
-    return data.choices[0].message ? data.choices[0].message.content : data.choices[0].text;
+    return data.choices[0].message ? data.choices[0].message.content : (data.choices[0].text || "");
   }
   return typeof response === 'string' ? response : "";
 }
@@ -156,11 +156,11 @@ function extractContent(response) {
 async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   var baseUrl = apiUrl.replace(/\/$/, '');
   var fullUrl = baseUrl + '/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
-  var promptText = "影视搜索：请列出" + count + "个与「" + prompt + "」最相关的作品名。每行一个名，严禁解释和标点。";
+  var promptText = "影视搜索列表（单体代表作）：" + prompt + "。列出" + count + "个名字，每行一个，无标点，无解释。";
   
   var response = await Widget.http.post(fullUrl, {
     contents: [{ parts: [{ text: promptText }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 500 }
+    generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
   }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
   
   if (response && response.candidates && response.candidates[0]) {
@@ -169,23 +169,23 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   return "";
 }
 
-// ==================== 3. 核心解析与过滤逻辑 ====================
+// ==================== 3. 工具函数 (解析与 TMDB) ====================
 
 function parseNames(content) {
   if (!content) return [];
   var names = [];
   var lines = content.split("\n");
   
-  // 废话黑名单：拦截 AI 的解释性回复
-  const blacklist = ["抱歉", "作为一个", "AI助手", "无法", "对不起", "模型", "提示词", "违规", "内容", "推荐", "如下"];
+  // 废话黑名单：拦截 AI 的对话式回复
+  const blacklist = ["抱歉", "作为一个", "AI助手", "无法", "对不起", "模型", "提示词", "违规", "内容", "推荐", "如下", "找到"];
 
   for (var line of lines) {
-    // 清理：去掉序号、书名号及括号内容
-    line = line.replace(/^[\d\+\-\*•\s\.、，]*|《|》|""|''|「|」|\[|\]|【|】|\(.*?\)|（.*?）/g, '').trim();
+    // 基础清理：去掉序号、书名号
+    line = line.replace(/^[\d\+\-\*•\s\.、，]*/g, '').replace(/[《》""''「」\[\]【】()（）]/g, '').trim();
     
-    // 过滤：黑名单匹配 + 句子检测（包含标点符号的通常不是剧名）
+    // 逻辑过滤
     const isChatter = blacklist.some(word => line.includes(word));
-    const isSentence = /[，。！？：；]/.test(line);
+    const isSentence = /[，。！？：；]/.test(line); // 剧名通常不含这些标点
 
     if (line && line.length >= 1 && line.length <= 25 && !isChatter && !isSentence) {
       names.push(line);
@@ -207,10 +207,19 @@ async function getTmdbDetail(title, mediaType, apiKey) {
     } else {
       responseData = await Widget.tmdb.get("/search/" + mediaType, { params: { query: title, language: "zh-CN" } });
     }
+    
     if (!responseData || !responseData.results || responseData.results.length === 0) return null;
     
-    // 自动选取第一个结果
-    var item = responseData.results[0];
+    // 这里的策略：尽量避开标题带“合集”、“纪录”的结果
+    const filterWords = ["合集", "Collection", "纪录", "传记", "典藏", "电影节"];
+    let item = responseData.results.find(r => {
+      const t = r.title || r.name;
+      return !filterWords.some(w => t.includes(w));
+    });
+
+    // 如果都被过滤了，才选第一个
+    if (!item) item = responseData.results[0];
+
     return {
       id: item.id,
       type: "tmdb",
@@ -225,7 +234,7 @@ async function getTmdbDetail(title, mediaType, apiKey) {
   } catch (e) { return null; }
 }
 
-// ==================== 4. 业务入口函数 ====================
+// ==================== 4. 业务执行函数 ====================
 
 async function searchAI(params) {
   const keyword = (params.keyword || params.query || "").trim();
@@ -237,59 +246,51 @@ async function loadAIList(params) {
 }
 
 async function loadSimilarList(params) {
-  return await commonLoadLogic(params, "类似《" + (params.referenceTitle || "") + "》的作品");
+  return await commonLoadLogic(params, "类似《" + (params.referenceTitle || "") + "》的高分影视作品");
 }
 
-/**
- * 核心逻辑：AI 提取 -> 剧名清理 -> TMDB 过滤匹配
- */
 async function commonLoadLogic(params, promptText) {
   if (!promptText) return [];
 
   var aiConfig = {
-    apiUrl: params.aiApiUrl,
-    apiKey: params.aiApiKey,
-    model: params.aiModel,
-    format: params.aiApiFormat,
+    apiUrl: params.aiApiUrl || "",
+    apiKey: params.aiApiKey || "",
+    model: params.aiModel || "",
+    format: params.aiApiFormat || "openai",
     prompt: promptText,
     count: parseInt(params.recommendCount) || 10
   };
   
   var tmdbKey = params.TMDB_API_KEY || "";
   
-  // 1. 获取 AI 解析出的剧名
+  // 1. 调用 AI 并解析
   var content = await callAI(aiConfig);
   var names = parseNames(content).slice(0, aiConfig.count);
   
-  if (names.length === 0) throw new Error("未能识别到有效剧名，请换个说法试试");
+  if (names.length === 0) throw new Error("AI未能提供有效剧名，请尝试更换关键词");
 
-  // 2. 并行查询 TMDB
+  // 2. 查询 TMDB (先搜电影，再搜 TV)
   var results = await Promise.all(names.map(async (name) => {
-    // 优先匹配电影，再匹配 TV
     let detail = await getTmdbDetail(name, "movie", tmdbKey);
     if (!detail) detail = await getTmdbDetail(name, "tv", tmdbKey);
     return detail;
   }));
 
-  // 3. 深度过滤结果（排除合集、纪录片等干扰项）
+  // 3. 最终过滤与去重
   var seenIds = new Set();
   var validResults = results.filter(r => {
     if (!r || seenIds.has(r.id)) return false;
-    // 过滤包含“合集”、“Collection”、“纪录”字样的干扰项
-    const filterWords = ["合集", "Collection", "纪录", "传记", "典藏"];
-    if (filterWords.some(word => r.title.includes(word))) return false;
-    
     seenIds.add(r.id);
     return true;
   });
   
-  // 4. 兜底处理：如果 TMDB 没搜到海报，则保留文字结果
+  // 4. 如果所有 TMDB 匹配都失败了，至少显示 AI 返回的文本名字
   if (validResults.length === 0) {
     return names.map((name, i) => ({
-      id: "ai_" + i + "_" + Date.now(),
+      id: "ai_text_" + i + "_" + Date.now(),
       type: "tmdb",
       title: name,
-      description: "AI 推荐结果 (未能在 TMDB 找到详情)",
+      description: "AI 推荐结果",
       mediaType: "movie"
     }));
   }
@@ -297,4 +298,4 @@ async function commonLoadLogic(params, promptText) {
   return validResults;
 }
 
-console.log("AI 影视搜索模块 v5.1.0 加载成功");
+console.log("AI 影视增强搜索模块 v5.1.0 已挂载");
