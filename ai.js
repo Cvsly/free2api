@@ -1,5 +1,5 @@
 /**
- * AI 影视推荐模块
+ * AI 影视推荐模块（优化演员名字搜索）
  * 支持OpenAI/Gemini/硅基流动/NewApi等接口
  * 适配Forward官方搜索规范，保留全局AI搜索+类型推荐+相似推荐
  */
@@ -15,7 +15,7 @@ var WidgetMetadata = {
   description: "AI智能推荐+相似推荐+全局AI搜索，兼容多平台AI接口",
   author: "crush7s",
   site: "https://github.com/InchStudio/ForwardWidgets",
-  version: "5.2.0",
+  version: "5.3.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
   
@@ -246,6 +246,7 @@ function parseNames(content) {
   return [...new Set(names)];
 }
 
+// 原有的片名搜索
 async function getTmdbDetail(title, mediaType, apiKey) {
   if (!title) return null;
   var t = title.replace(/[（(].*[)）]/g, "").replace(/\s+/g, " ").trim();
@@ -284,7 +285,70 @@ async function getTmdbDetail(title, mediaType, apiKey) {
   }
 }
 
-// ==================== 4. 核心函数：全局AI自然语言搜索 ====================
+// 新增：演员搜索 → 获取演员作品
+async function getActorWorks(actorName, apiKey, count) {
+  if (!actorName) return [];
+  try {
+    // 1. 搜索演员
+    var personRes;
+    if (apiKey) {
+      personRes = await Widget.http.get("https://api.themoviedb.org/3/search/person", {
+        params: { api_key: apiKey, query: actorName, language: "zh-CN" },
+        headers: { "User-Agent": USER_AGENT },
+        timeout: 10000
+      });
+    } else {
+      personRes = { data: await Widget.tmdb.get("/search/person", { params: { query: actorName, language: "zh-CN" } }) };
+    }
+
+    if (!personRes.data.results?.length) return [];
+    var personId = personRes.data.results[0].id;
+
+    // 2. 获取演员参演电影 + 剧集
+    var [movieCredits, tvCredits] = await Promise.all([
+      apiKey ? 
+        Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/movie_credits`, {
+          params: { api_key: apiKey, language: "zh-CN" },
+          headers: { "User-Agent": USER_AGENT }
+        }) :
+        { data: await Widget.tmdb.get(`/person/${personId}/movie_credits`, { params: { language: "zh-CN" } }) },
+      
+      apiKey ?
+        Widget.http.get(`https://api.themoviedb.org/3/person/${personId}/tv_credits`, {
+          params: { api_key: apiKey, language: "zh-CN" },
+          headers: { "User-Agent": USER_AGENT }
+        }) :
+        { data: await Widget.tmdb.get(`/person/${personId}/tv_credits`, { params: { language: "zh-CN" } }) }
+    ]);
+
+    var works = [];
+    // 合并电影和剧集，按 popularity 排序
+    if (movieCredits.data.cast) works = works.concat(movieCredits.data.cast.map(i => ({...i, media_type: "movie"})));
+    if (tvCredits.data.cast) works = works.concat(tvCredits.data.cast.map(i => ({...i, media_type: "tv"})));
+    
+    works.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    works = works.slice(0, count);
+
+    // 3. 转换为 Forward 格式
+    return works.map(d => ({
+      id: `tmdb:${d.media_type}:${d.id}`,
+      type: "video",
+      title: d.title || d.name,
+      description: d.overview || "暂无影片简介",
+      poster: d.poster_path ? IMAGE_BASE + d.poster_path : null,
+      backdrop: d.backdrop_path ? BACKDROP_BASE + d.backdrop_path : null,
+      year: (d.release_date || d.first_air_date || "").split("-")[0] || "未知",
+      rating: d.vote_average ? parseFloat(d.vote_average.toFixed(1)) : 0,
+      mediaType: d.media_type,
+      link: `tmdb:${d.media_type}:${d.id}`,
+    }));
+  } catch (e) {
+    console.error(`[演员搜索失败] ${actorName}: ${e.message}`);
+    return [];
+  }
+}
+
+// ==================== 4. 核心函数：全局AI自然语言搜索（优化演员搜索） ====================
 async function nlSearch(params = {}) {
   const keyword = (params.query || "").trim();
   if (!keyword) throw new Error("请输入想看的内容描述");
@@ -296,6 +360,14 @@ async function nlSearch(params = {}) {
   const tmdbKey = params.TMDB_API_KEY;
   const count = parseInt(params.recommendCount) || 9;
 
+  // 优先判断是否为演员名字搜索（中文/英文名）
+  const isActorSearch = /^[\u4e00-\u9fa5]{2,}$/.test(keyword) || /^[A-Za-z\s]{2,}$/.test(keyword);
+  if (isActorSearch && tmdbKey) {
+    var actorWorks = await getActorWorks(keyword, tmdbKey, count);
+    if (actorWorks.length > 0) return actorWorks; // 优先返回演员作品
+  }
+
+  //  fallback：原AI推荐 + 片名搜索
   if (!aiApiUrl || !aiApiKey || !aiModel) {
     throw new Error("请先在全局参数中配置完整的AI API信息");
   }
@@ -425,4 +497,4 @@ async function loadDetail(item) {
   };
 }
 
-console.log("AI影视推荐模块 v5.2.0 加载成功 ✅（已移除模块内AI发现）");
+console.log("AI影视推荐模块 v5.3.0 加载成功 ✅（已优化演员名字搜索）");
