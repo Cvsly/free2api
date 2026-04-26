@@ -1,40 +1,71 @@
 /**
- * AI 影视推荐模块（稳定修复版）
- * 不改API逻辑，仅修复UI兼容问题
+ * AI 影视推荐模块（JSCore 兼容版）- UI优化版
  */
 
 const USER_AGENT = "Mozilla/5.0";
 
-// ==================== Metadata ====================
+// ==================== API地址自动补全 ====================
+function normalizeApiUrl(apiUrl, format) {
+  if (!apiUrl) return "";
+
+  apiUrl = apiUrl.replace(/\/+$/, "");
+
+  if (format === "gemini") return apiUrl;
+
+  if (
+    apiUrl.includes("/chat/completions") ||
+    apiUrl.includes("/responses")
+  ) {
+    return apiUrl;
+  }
+
+  if (apiUrl.endsWith("/v1")) {
+    return apiUrl + "/chat/completions";
+  }
+
+  if (!apiUrl.includes("/v1")) {
+    return apiUrl + "/v1/chat/completions";
+  }
+
+  return apiUrl;
+}
+
+// ==================== sleep ====================
+function sleep(ms) {
+  var start = Date.now();
+  while (Date.now() - start < ms) {}
+}
+
+// ==================== Metadata（UI优化核心） ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "OpenAI / Gemini / 自定义API + TMDB智能解析（稳定版）",
+  description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
   author: "crush7s",
-  version: "5.2.2-stable",
+  version: "5.3.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
   globalParams: [
 
-    // ==================== API地址（稳定UI版）====================
+    // ========== API模式选择（新增） ==========
     {
-      name: "aiApiUrl",
-      title: "AI API 地址",
-      type: "input",
-      required: true,
-      defaultValue: "https://api.openai.com/v1/chat/completions"
+      name: "apiMode",
+      title: "API模式",
+      type: "enumeration",
+      enumOptions: [
+        { title: "OpenAI", value: "openai" },
+        { title: "Gemini", value: "gemini" },
+        { title: "自定义地址", value: "custom" }
+      ],
+      defaultValue: "openai"
     },
 
     {
-      name: "aiApiFormat",
-      title: "API 格式",
-      type: "enumeration",
-      enumOptions: [
-        { title: "OpenAI / 硅基流动（通用）", value: "openai" },
-        { title: "Gemini", value: "gemini" }
-      ],
-      defaultValue: "openai"
+      name: "aiApiUrl",
+      title: "AI API 地址（自定义模式才生效）",
+      type: "input",
+      required: false
     },
 
     {
@@ -46,156 +77,75 @@ var WidgetMetadata = {
 
     {
       name: "aiModel",
-      title: "AI 模型名称",
+      title: "模型",
       type: "input",
       defaultValue: "gpt-4o-mini"
     },
 
+    { name: "TMDB_API_KEY", title: "TMDB Key", type: "input" },
+
+    // ========== 推荐数量（优化：可理解为默认 + 可改） ==========
     {
-      name: "TMDB_API_KEY",
-      title: "TMDB API Key",
+      name: "recommendCount",
+      title: "推荐数量（可修改）",
       type: "input",
-      required: false
+      defaultValue: "9"
+    },
+
+    // ========== AI推荐风格（新增预设） ==========
+    {
+      name: "aiStyle",
+      title: "想看什么（可选预设）",
+      type: "enumeration",
+      enumOptions: [
+        { title: "手动输入", value: "" },
+        { title: "高分电影", value: "高分电影" },
+        { title: "热门电影", value: "热门电影" },
+        { title: "科幻大片", value: "科幻电影" },
+        { title: "喜剧电影", value: "喜剧电影" },
+        { title: "治愈系", value: "治愈系影视" },
+        { title: "悬疑烧脑", value: "悬疑电影" }
+      ],
+      defaultValue: ""
     },
 
     {
-      name: "recommendCount",
-      title: "推荐数量",
-      type: "enumeration",
-      enumOptions: [
-        { title: "6部", value: "6" },
-        { title: "9部", value: "9" },
-        { title: "12部", value: "12" }
-      ],
-      defaultValue: "9"
+      name: "prompt",
+      title: "自定义需求（输入优先）",
+      type: "input",
+      required: true
     }
   ],
 
   modules: [
     {
       id: "smartRecommend",
-      title: "AI智能推荐",
+      title: "AI推荐",
       functionName: "loadAIList",
       params: [
-        {
-          name: "prompt",
-          title: "想看什么",
-          type: "input",
-          required: true
-        }
+        { name: "prompt", title: "想看什么", type: "input", required: true }
       ]
     },
-
     {
       id: "similarRecommend",
       title: "相似推荐",
       functionName: "loadSimilarList",
       params: [
-        {
-          name: "referenceTitle",
-          title: "喜欢的作品",
-          type: "input",
-          required: true
-        }
+        { name: "referenceTitle", title: "喜欢的作品", type: "input", required: true }
       ]
     }
   ]
 };
 
-// ==================== API地址处理 ====================
-function normalizeApiUrl(apiUrl, format) {
-  if (!apiUrl) return "";
-  apiUrl = apiUrl.replace(/\/+$/, "");
-
-  if (format === "gemini") return apiUrl;
-
-  if (apiUrl.includes("/chat/completions")) return apiUrl;
-
-  if (apiUrl.endsWith("/v1")) return apiUrl + "/chat/completions";
-
-  if (!apiUrl.includes("/v1")) return apiUrl + "/v1/chat/completions";
-
-  return apiUrl;
-}
-
-// ==================== OpenAI ====================
-async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
-
-  var headers = {
-    "Content-Type": "application/json"
-  };
-
-  if (apiKey) {
-    headers["Authorization"] = apiKey.startsWith("Bearer ")
-      ? apiKey
-      : "Bearer " + apiKey;
-  }
-
-  return await Widget.http.post(
-    apiUrl,
-    {
-      model: model,
-      messages: messages
-    },
-    { headers }
-  );
-}
-
-// ==================== Gemini ====================
-async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
-
-  var base = apiUrl.replace(/\/$/, "");
-  var url = base + "/models/" + model + ":generateContent?key=" + apiKey;
-
-  var body = {
-    contents: [
-      {
-        parts: [{
-          text: "推荐" + count + "部" + prompt + "影视作品，每行一个名称，不要解释"
-        }]
-      }
-    ]
-  };
-
-  var res = await Widget.http.post(url, body, {
-    headers: { "Content-Type": "application/json" }
-  });
-
-  try {
-    return res.candidates[0].content.parts[0].text;
-  } catch (e) {
-    return "";
-  }
-}
-
-// ==================== 提取内容 ====================
-function extractContent(res) {
-  if (!res) return "";
-
-  if (res.choices) {
-    return res.choices[0].message.content || "";
-  }
-
-  if (typeof res === "string") return res;
-
-  if (res.data) return extractContent(res.data);
-
-  try {
-    return res.candidates[0].content.parts[0].text;
-  } catch (e) {}
-
-  return "";
-}
-
-// ==================== AI调用（不改逻辑）====================
+// ==================== AI入口（只调用一次） ====================
 async function callAI(config) {
 
-  var apiUrl = normalizeApiUrl(config.apiUrl, config.format);
+  var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
 
   var messages = [
     {
       role: "system",
-      content: "你是影视推荐助手，只返回名称，每行一个，不要解释"
+      content: "你是影视推荐助手。严格按照数量返回，每行一个名称，不要解释。"
     },
     {
       role: "user",
@@ -213,79 +163,75 @@ async function callAI(config) {
     );
   }
 
-  var res = await callOpenAIFormat(apiUrl, config.apiKey, config.model, messages);
+  var res = await callOpenAIFormat(
+    finalUrl,
+    config.apiKey,
+    config.model,
+    messages
+  );
+
   return extractContent(res);
 }
 
-// ==================== 解析剧名 ====================
-function parseNames(text) {
-  if (!text) return [];
-
-  return text
-    .split("\n")
-    .map(t => t.trim())
-    .map(t => t.replace(/^\d+[\.\、\)）]\s*/, ""))
-    .filter(t => t.length > 1)
-    .slice(0, 30);
-}
-
-// ==================== TMDB ====================
-async function searchTMDB(title, type, key) {
-  try {
-    var res = await Widget.http.get(
-      "https://api.themoviedb.org/3/search/" + type,
-      {
-        params: {
-          api_key: key,
-          query: title,
-          language: "zh-CN"
-        }
-      }
-    );
-
-    if (res.data) res = res.data;
-
-    if (res.results && res.results.length > 0) {
-      var item = res.results[0];
-      return {
-        id: item.id,
-        title: item.title || item.name,
-        description: item.overview || "",
-        posterPath: item.poster_path,
-        rating: item.vote_average || 0,
-        mediaType: type
-      };
-    }
-  } catch (e) {}
-
-  return null;
-}
-
-// ==================== 主逻辑 ====================
+// ==================== 主逻辑（UI逻辑优化入口） ====================
 async function loadAIList(params) {
 
+  // ====== UI逻辑融合（关键新增） ======
+  var finalPrompt = params.prompt || "";
+
+  // 如果选择了预设风格，自动拼接
+  if (params.aiStyle && params.aiStyle.length > 0) {
+    finalPrompt = params.aiStyle + " " + finalPrompt;
+  }
+
+  // API模式控制
+  var apiUrl = params.aiApiUrl;
+
+  if (params.apiMode === "openai") {
+    apiUrl = "https://api.openai.com/v1/chat/completions";
+  }
+
+  if (params.apiMode === "gemini") {
+    apiUrl = "https://generativelanguage.googleapis.com";
+  }
+
   var config = {
-    apiUrl: params.aiApiUrl,
+    apiUrl: apiUrl,
     apiKey: params.aiApiKey,
     model: params.aiModel,
-    format: params.aiApiFormat,
-    prompt: params.prompt,
+    format: params.apiMode,
+    prompt: finalPrompt,
     count: parseInt(params.recommendCount || "9")
   };
 
   var text = await callAI(config);
-  var names = parseNames(text).slice(0, config.count);
+  var names = parseNames(text);
+
+  if (names.length === 0) {
+    return [{
+      id: "ai_error",
+      type: "tmdb",
+      title: "未获取到推荐",
+      description: text
+    }];
+  }
 
   var tmdbKey = params.TMDB_API_KEY;
-
   var results = [];
 
   for (var i = 0; i < names.length; i++) {
-    var r = await searchTMDB(names[i], "movie", tmdbKey);
-    if (!r) r = await searchTMDB(names[i], "tv", tmdbKey);
+    var name = names[i];
 
-    results.push(r || {
-      title: names[i],
+    var result = await searchTMDB(name, "movie", tmdbKey);
+
+    if (!result) {
+      result = await searchTMDB(name, "tv", tmdbKey);
+    }
+
+    results.push(result || {
+      id: "ai_" + i,
+      type: "tmdb",
+      title: name,
       description: "AI推荐"
     });
   }
@@ -293,10 +239,4 @@ async function loadAIList(params) {
   return results;
 }
 
-// ==================== 相似推荐 ====================
-async function loadSimilarList(params) {
-  params.prompt = "类似《" + params.referenceTitle + "》";
-  return loadAIList(params);
-}
-
-console.log("✅ AI影视推荐模块 v5.2.2-stable 已加载");
+console.log("✅ AI影视推荐模块 v5.3.0（UI优化版）已加载");
