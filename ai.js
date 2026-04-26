@@ -1,43 +1,31 @@
 /**
- * AI影视推荐模块（终极单例防重复版）
+ * AI影视推荐模块（最终稳定版 + 单例 + fallback + 优化推荐）
  */
 
 const USER_AGENT = "Mozilla/5.0";
 
-// ==================== 全局单例控制 ====================
-
-// 单例请求（整个模块只允许一个AI请求）
-var AI_SINGLETON_PENDING = null;
-
-// 缓存
+// ==================== 单例控制 ====================
+var AI_PENDING = null;
 var AI_CACHE = {};
 var AI_CACHE_TIME = {};
-
-// 缓存时间（60秒）
-var CACHE_TTL = 60 * 1000;
+var CACHE_TTL = 60000;
 
 
 // ==================== API地址自动补全 ====================
-function normalizeApiUrl(apiUrl, format) {
-  if (!apiUrl) return "";
+function normalizeApiUrl(url, format) {
+  if (!url) return "";
 
-  apiUrl = apiUrl.replace(/\/+$/, "");
+  url = url.replace(/\/+$/, "");
 
-  if (format === "gemini") return apiUrl;
+  if (format === "gemini") return url;
 
-  if (apiUrl.includes("/chat/completions") || apiUrl.includes("/responses")) {
-    return apiUrl;
-  }
+  if (url.includes("/chat/completions")) return url;
 
-  if (apiUrl.endsWith("/v1")) {
-    return apiUrl + "/chat/completions";
-  }
+  if (url.endsWith("/v1")) return url + "/chat/completions";
 
-  if (!apiUrl.includes("/v1")) {
-    return apiUrl + "/v1/chat/completions";
-  }
+  if (!url.includes("/v1")) return url + "/v1/chat/completions";
 
-  return apiUrl;
+  return url;
 }
 
 
@@ -45,10 +33,8 @@ function normalizeApiUrl(apiUrl, format) {
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "终极防重复调用版",
-  author: "crush7s",
-  version: "6.0.0",
-  requiredVersion: "0.0.2",
+  description: "稳定版（单次调用+智能推荐）",
+  version: "7.0.0",
 
   globalParams: [
     { name: "aiApiUrl", title: "API地址", type: "input", required: true },
@@ -65,7 +51,17 @@ var WidgetMetadata = {
       defaultValue: "openai"
     },
     { name: "TMDB_API_KEY", title: "TMDB Key", type: "input" },
-    { name: "recommendCount", title: "数量", type: "input", defaultValue: "9" }
+    {
+      name: "recommendCount",
+      title: "推荐数量",
+      type: "enumeration",
+      enumOptions: [
+        { title: "6部", value: "6" },
+        { title: "9部", value: "9" },
+        { title: "12部", value: "12" }
+      ],
+      defaultValue: "9"
+    }
   ],
 
   modules: [
@@ -74,55 +70,71 @@ var WidgetMetadata = {
       title: "AI推荐",
       functionName: "loadAIList",
       params: [
-        { name: "prompt", title: "想看什么", type: "input", required: true }
+        {
+          name: "prompt",
+          title: "想看什么",
+          type: "input",
+          required: true,
+          placeholders: [
+            { title: "高分喜剧", value: "高分喜剧" },
+            { title: "烧脑悬疑", value: "烧脑悬疑" },
+            { title: "经典高分电影", value: "经典高分电影" },
+            { title: "下饭轻松剧", value: "下饭轻松剧" },
+            { title: "科幻大片", value: "科幻大片" },
+            { title: "高分国产剧", value: "高分国产剧" },
+            { title: "高分美剧", value: "高分美剧" },
+            { title: "动作爽片", value: "动作爽片" },
+            { title: "催泪爱情", value: "催泪爱情" },
+            { title: "动画佳作", value: "动画佳作" },
+            { title: "犯罪神剧", value: "犯罪神剧" },
+            { title: "冷门佳片", value: "冷门佳片" }
+          ]
+        }
       ]
     },
     {
       id: "similarRecommend",
       title: "相似推荐",
-      functionName: "loadSimilarList"
+      functionName: "loadSimilarList",
+      params: [
+        {
+          name: "referenceTitle",
+          title: "喜欢的作品",
+          type: "input",
+          required: true
+        }
+      ]
     }
   ]
 };
 
 
-// ==================== OpenAI请求 ====================
-async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
-
-  var headers = {
-    "Content-Type": "application/json",
-    "Authorization": apiKey.startsWith("Bearer ")
-      ? apiKey
-      : "Bearer " + apiKey
-  };
-
-  var body = {
-    model: model,
-    messages: messages
-  };
-
-  return await Widget.http.post(apiUrl, body, {
-    headers: headers,
-    timeout: 60000
+// ==================== AI请求 ====================
+async function callOpenAI(url, key, model, messages) {
+  return await Widget.http.post(url, {
+    model,
+    messages
+  }, {
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": key.startsWith("Bearer ")
+        ? key
+        : "Bearer " + key
+    }
   });
 }
 
+async function callGemini(url, key, model, prompt, count) {
+  url = url.replace(/\/+$/, '');
 
-// ==================== Gemini ====================
-async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
+  if (!url.includes("/v1beta")) url += "/v1beta";
 
-  apiUrl = apiUrl.replace(/\/+$/, '');
+  var full = url + "/models/" + model + ":generateContent?key=" + key;
 
-  if (!apiUrl.includes("/v1beta")) {
-    apiUrl += "/v1beta";
-  }
-
-  var url = apiUrl + '/models/' + model + ':generateContent?key=' + apiKey;
-
-  var res = await Widget.http.post(url, {
-    contents: [
-      { parts: [{ text: "推荐" + count + "部" + prompt + "影视作品，只返回名称" }] }
-    ]
+  var res = await Widget.http.post(full, {
+    contents: [{
+      parts: [{ text: "推荐" + count + "部" + prompt + "影视作品，只返回名称" }]
+    }]
   });
 
   try {
@@ -137,91 +149,76 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
 function extractContent(res) {
   if (!res) return "";
 
-  if (res.choices && res.choices[0]) {
-    return res.choices[0].message?.content || res.choices[0].text || "";
+  if (res.choices) {
+    return res.choices[0]?.message?.content || res.choices[0]?.text || "";
   }
-
-  if (typeof res === "string") return res;
 
   try { return res.candidates[0].content.parts[0].text } catch {}
 
-  return "";
+  return typeof res === "string" ? res : "";
 }
 
 
-// ==================== ⭐ 单例AI调用（核心） ====================
+// ⭐ 强化解析
+function parseNames(text) {
+  if (!text) return [];
+
+  return text.split("\n")
+    .map(t => t.trim())
+    .map(t => t
+      .replace(/^[\d\.\-\s]+/, "")
+      .replace(/[《》]/g, "")
+    )
+    .filter(t => t.length > 1);
+}
+
+
+// ==================== 单例AI ====================
 async function callAI(config) {
 
   var key = JSON.stringify(config);
 
-  // ✅ 缓存命中
-  if (AI_CACHE[key] && (Date.now() - AI_CACHE_TIME[key] < CACHE_TTL)) {
-    console.log("[AI] 使用缓存");
+  if (AI_CACHE[key] && Date.now() - AI_CACHE_TIME[key] < CACHE_TTL) {
     return AI_CACHE[key];
   }
 
-  // ✅ 已有全局请求
-  if (AI_SINGLETON_PENDING) {
-    console.log("[AI] 复用全局请求");
-    return await AI_SINGLETON_PENDING;
+  if (AI_PENDING) {
+    return await AI_PENDING;
   }
 
-  // ✅ 创建唯一请求
-  AI_SINGLETON_PENDING = (async () => {
-    try {
+  AI_PENDING = (async () => {
 
-      console.log("[AI] 发起唯一请求");
+    let result = "";
 
-      let result;
+    if (config.format === "gemini") {
+      result = await callGemini(
+        config.apiUrl,
+        config.apiKey,
+        config.model,
+        config.prompt,
+        config.count
+      );
+    } else {
+      var url = normalizeApiUrl(config.apiUrl, config.format);
 
-      if (config.format === "gemini") {
-        result = await callGeminiFormat(
-          config.apiUrl,
-          config.apiKey,
-          config.model,
-          config.prompt,
-          config.count
-        );
-      } else {
+      var res = await callOpenAI(url, config.apiKey, config.model, [
+        { role: "system", content: "只返回影视名称，每行一个" },
+        { role: "user", content: "推荐" + config.count + "部" + config.prompt }
+      ]);
 
-        var url = normalizeApiUrl(config.apiUrl, config.format);
-
-        var messages = [
-          { role: "system", content: "只返回影视名称，每行一个" },
-          { role: "user", content: "推荐" + config.count + "部" + config.prompt }
-        ];
-
-        var res = await callOpenAIFormat(
-          url,
-          config.apiKey,
-          config.model,
-          messages
-        );
-
-        result = extractContent(res);
-      }
-
-      // 写入缓存
-      AI_CACHE[key] = result;
-      AI_CACHE_TIME[key] = Date.now();
-
-      return result;
-
-    } finally {
-      // 清除单例锁
-      AI_SINGLETON_PENDING = null;
+      result = extractContent(res);
     }
+
+    AI_CACHE[key] = result;
+    AI_CACHE_TIME[key] = Date.now();
+
+    AI_PENDING = null;
+
+    return result;
+
   })();
 
-  return await AI_SINGLETON_PENDING;
-}
-
-
-// ==================== 工具 ====================
-function parseNames(text) {
-  return text.split("\n")
-    .map(t => t.trim())
-    .filter(t => t.length > 1);
+  return await AI_PENDING;
 }
 
 
@@ -233,7 +230,7 @@ async function getTmdbDetail(title, type, key) {
     if (key) {
       res = await Widget.http.get(
         "https://api.themoviedb.org/3/search/" + type,
-        { params: { api_key: key, query: title } }
+        { params: { api_key: key, query: title, language: "zh-CN" } }
       );
       res = res.data;
     } else {
@@ -244,14 +241,15 @@ async function getTmdbDetail(title, type, key) {
 
     if (!res.results?.length) return null;
 
-    var item = res.results[0];
+    var i = res.results[0];
 
     return {
-      id: item.id,
+      id: i.id,
       type: "tmdb",
-      title: item.title || item.name,
-      description: item.overview || "",
-      posterPath: item.poster_path
+      title: i.title || i.name,
+      description: i.overview || "",
+      posterPath: i.poster_path,
+      rating: i.vote_average || 0
     };
 
   } catch {
@@ -279,11 +277,24 @@ async function loadAIList(params) {
   var tmdbKey = params.TMDB_API_KEY;
 
   var results = await Promise.all(
-    names.map(n => getTmdbDetail(n, "movie", tmdbKey)
-      .then(r => r || getTmdbDetail(n, "tv", tmdbKey)))
+    names.map(n =>
+      getTmdbDetail(n, "movie", tmdbKey)
+      .then(r => r || getTmdbDetail(n, "tv", tmdbKey))
+    )
   );
 
-  return results.filter(Boolean);
+  var valid = results.filter(Boolean);
+
+  // ⭐ 关键修复：fallback
+  if (valid.length > 0) return valid;
+
+  return names.map((n, i) => ({
+    id: "ai_" + i,
+    type: "tmdb",
+    title: n,
+    description: "AI推荐",
+    posterPath: null
+  }));
 }
 
 
@@ -293,4 +304,4 @@ async function loadSimilarList(params) {
 }
 
 
-console.log("✅ 单例AI模块 v6.0 已加载（彻底防重复调用）");
+console.log("✅ AI影视推荐 v7.0 最终稳定版已加载");
