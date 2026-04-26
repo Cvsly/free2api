@@ -47,12 +47,29 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
   author: "crush7s",
-  version: "5.2.3",
+  version: "5.2.4",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
   globalParams: [
-    { name: "aiApiUrl", title: "AI API 地址", type: "input", required: true },
+    {
+      name: "aiApiUrl",
+      title: "API 接口地址",
+      type: "enumeration",
+      enumOptions: [
+        { title: "OpenAI 官方", value: "https://api.openai.com" },
+        { title: "Gemini 官方", value: "https://generativelanguage.googleapis.com" },
+        { title: "自定义地址", value: "custom" }
+      ],
+      defaultValue: "https://api.openai.com"
+    },
+    {
+      name: "customApiUrl",
+      title: "自定义API地址",
+      type: "input",
+      required: false,
+      placeholder: "选择\"自定义地址\"时填写完整URL"
+    },
     {
       name: "aiApiFormat",
       title: "API 格式",
@@ -100,6 +117,14 @@ var WidgetMetadata = {
     }
   ]
 };
+
+// ==================== 获取实际API地址 ====================
+function getActualApiUrl(params) {
+  if (params.aiApiUrl === "custom") {
+    return params.customApiUrl || "";
+  }
+  return params.aiApiUrl;
+}
 
 // ==================== OpenAI / 中转 ====================
 async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
@@ -310,8 +335,11 @@ async function loadAIList(params) {
     targetCount = 9; // 最终回退默认值
   }
 
+  // 获取实际的API地址
+  var actualApiUrl = getActualApiUrl(params);
+
   var config = {
-    apiUrl: params.aiApiUrl,
+    apiUrl: actualApiUrl,
     apiKey: params.aiApiKey,
     model: params.aiModel,
     format: params.aiApiFormat,
@@ -320,6 +348,7 @@ async function loadAIList(params) {
   };
 
   console.log("[AI推荐] 开始获取推荐，类型: " + promptValue + "，目标数量: " + config.count);
+  console.log("[AI推荐] API地址: " + config.apiUrl);
   
   // 1. 调用AI一次，获取所有推荐名称
   var text = await callAI(config);
@@ -381,4 +410,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.2.3（JSCore兼容）已加载");
+console.log("✅ AI影视推荐模块 v5.2.4（JSCore兼容）已加载");
