@@ -1,20 +1,20 @@
-20260426 17:24:59 || /**
+20260426 17:28:49 || /**
  * AI 影视推荐模块
  * 原生支持OpenAI/Gemini/硅基流动，完美适配metapi/newapi/OneAPI/MaxKB等所有OpenAI格式兼容接口
  */
 
-const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-const DEFAULT_TIMEOUT = 120000; // 第三方接口超时放宽至120s，避免中转超时
-const MAX_RETRY_COUNT = 2; // 网络错误自动重试次数，提升第三方接口稳定性
+var USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+var DEFAULT_TIMEOUT = 120000;
+var MAX_RETRY_COUNT = 2;
 
-// ==================== 1. Metadata 定义（新增第三方接口预设） ====================
+// ==================== 1. Metadata 定义（严格符合Forward模块规范） ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/硅基流动/metapi/newapi/OneAPI等全格式接口",
   author: "crush7s",
   site: "",
-  version: "5.0.0",
+  version: "5.0.1",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
   
@@ -29,51 +29,51 @@ var WidgetMetadata = {
       placeholders: [
         {
           title: "OpenAI 官方",
-          value: "https://api.openai.com/v1/chat/completions",
+          value: "https://api.openai.com/v1/chat/completions"
         },
         {
           title: "Gemini 官方",
-          value: "https://generativelanguage.googleapis.com/v1beta",
+          value: "https://generativelanguage.googleapis.com/v1beta"
         },
         {
           title: "硅基流动",
-          value: "https://api.siliconflow.cn/v1/chat/completions",
+          value: "https://api.siliconflow.cn/v1/chat/completions"
         },
         {
           title: "metapi 中转",
-          value: "https://api.metapi.cc/v1/chat/completions",
+          value: "https://api.metapi.cc/v1/chat/completions"
         },
         {
           title: "newapi 中转",
-          value: "https://你的newapi域名/v1/chat/completions",
+          value: "https://你的newapi域名/v1/chat/completions"
         },
         {
           title: "OneAPI 中转",
-          value: "https://你的oneapi域名/v1/chat/completions",
+          value: "https://你的oneapi域名/v1/chat/completions"
         },
         {
           title: "自定义",
-          value: "",
-        },
-      ],
+          value: ""
+        }
+      ]
     },
     {
       name: "aiApiFormat",
       title: "API 格式",
       type: "enumeration",
       enumOptions: [
-        { title: "OpenAI 格式 (通用/中转接口通用)", value: "openai" },
-        { title: "Gemini 格式", value: "gemini" },
+        { title: "OpenAI 格式 (中转接口通用)", value: "openai" },
+        { title: "Gemini 格式", value: "gemini" }
       ],
       defaultValue: "openai",
-      description: "metapi/newapi/OneAPI/硅基流动等所有中转接口均选择OpenAI格式",
+      description: "metapi/newapi/OneAPI/硅基流动等所有中转接口均选择OpenAI格式"
     },
     {
       name: "aiApiKey",
       title: "AI API 密钥",
       type: "input",
       required: true,
-      description: "你的API Key，支持带/不带Bearer前缀，自动适配格式",
+      description: "你的API Key，支持带/不带Bearer前缀，自动适配格式"
     },
     {
       name: "aiModel",
@@ -85,32 +85,36 @@ var WidgetMetadata = {
       placeholders: [
         {
           title: "OpenAI",
-          value: "gpt-4o",
+          value: "gpt-4o"
         },
         {
           title: "Gemini",
-          value: "gemini-2.5-flash",
+          value: "gemini-2.5-flash"
         },
         {
           title: "通义千问",
-          value: "Qwen/Qwen2.5-7B-Instruct",
+          value: "Qwen/Qwen2.5-7B-Instruct"
         },
         {
           title: "DeepSeek",
-          value: "deepseek-ai/DeepSeek-V2.5",
+          value: "deepseek-ai/DeepSeek-V2.5"
         },
         {
           title: "自定义",
-          value: "",
-        },
-      ],
+          value: ""
+        }
+      ]
     },
     {
       name: "mergeSystemPrompt",
       title: "合并系统提示词",
-      type: "boolean",
-      defaultValue: false,
-      description: "开源模型/部分中转接口不支持system角色时，开启此开关",
+      type: "enumeration",
+      enumOptions: [
+        { title: "关闭", value: "false" },
+        { title: "开启", value: "true" }
+      ],
+      defaultValue: "false",
+      description: "开源模型/部分中转接口不支持system角色时，开启此选项"
     },
     {
       name: "TMDB_API_KEY",
@@ -121,9 +125,9 @@ var WidgetMetadata = {
       placeholders: [
         {
           title: "示例 Key",
-          value: "c5efdaca8be081f824c3201b3fb00670",
-        },
-      ],
+          value: "c5efdaca8be081f824c3201b3fb00670"
+        }
+      ]
     },
     {
       name: "recommendCount",
@@ -135,10 +139,10 @@ var WidgetMetadata = {
         { title: "9部", value: "9" },
         { title: "12部", value: "12" },
         { title: "15部", value: "15" },
-        { title: "18部", value: "18" },
+        { title: "18部", value: "18" }
       ],
-      defaultValue: "9",
-    },
+      defaultValue: "9"
+    }
   ],
   
   modules: [
@@ -163,10 +167,10 @@ var WidgetMetadata = {
             { title: "高分动画", value: "高分动画" },
             { title: "犯罪剧情", value: "犯罪剧情" },
             { title: "爱情片", value: "爱情片" },
-            { title: "战争片", value: "战争片" },
-          ],
-        },
-      ],
+            { title: "战争片", value: "战争片" }
+          ]
+        }
+      ]
     },
     {
       id: "similarRecommend",
@@ -187,37 +191,28 @@ var WidgetMetadata = {
             { title: "狂飙", value: "狂飙" },
             { title: "三体", value: "三体" },
             { title: "盗梦空间", value: "盗梦空间" },
-            { title: "让子弹飞", value: "让子弹飞" },
-          ],
-        },
-      ],
-    },
-  ],
+            { title: "让子弹飞", value: "让子弹飞" }
+          ]
+        }
+      ]
+    }
+  ]
 };
 
-// ==================== 2. AI API 适配器（核心适配第三方中转接口） ====================
-
-/**
- * 通用URL格式化工具 - 适配中转接口地址规范
- * 支持用户输入根地址(https://xxx.com/v1)或完整地址(https://xxx.com/v1/chat/completions)
- */
+// ==================== 2. 工具函数（ES5兼容写法） ====================
 function formatOpenAIUrl(apiUrl) {
   if (!apiUrl) return "";
-  let cleanUrl = apiUrl.trim().replace(/\/$/, '');
+  var cleanUrl = apiUrl.trim().replace(/\/$/, '');
   
-  // 已经是完整的chat/completions地址，直接返回
   if (cleanUrl.endsWith('/chat/completions')) {
     return cleanUrl;
   }
   
-  // 根地址，自动补全chat/completions
   if (cleanUrl.endsWith('/v1')) {
     return cleanUrl + '/chat/completions';
   }
   
-  // 其他情况，尝试补全路径
   if (!cleanUrl.includes('/chat/completions')) {
-    // 先判断是否有v1路径，没有则先补v1
     if (!cleanUrl.includes('/v1')) {
       cleanUrl += '/v1';
     }
@@ -227,31 +222,27 @@ function formatOpenAIUrl(apiUrl) {
   return cleanUrl;
 }
 
-/**
- * 延迟工具函数 - 用于重试等待
- */
 function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(function(resolve) {
+    setTimeout(resolve, ms);
+  });
 }
 
-/**
- * OpenAI 格式 API 调用（全兼容metapi/newapi/OneAPI等中转接口）
- * 新增：URL自动补全、重试机制、参数兼容、错误增强、system角色兼容
- */
-async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens, mergeSystemPrompt = false, retryCount = 0) {
-  // 1. 基础参数格式化
-  const formattedUrl = formatOpenAIUrl(apiUrl);
-  const formattedApiKey = apiKey ? apiKey.trim() : "";
-  const formattedModel = model ? model.trim() : "";
+// ==================== 3. AI API 适配器（ES5兼容，全适配中转接口） ====================
+function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens, mergeSystemPrompt, retryCount) {
+  mergeSystemPrompt = mergeSystemPrompt === "true";
+  retryCount = retryCount || 0;
   
-  // 2. 请求头构建（兼容中转接口规范）
+  var formattedUrl = formatOpenAIUrl(apiUrl);
+  var formattedApiKey = apiKey ? apiKey.trim() : "";
+  var formattedModel = model ? model.trim() : "";
+  
   var headers = {
     "Content-Type": "application/json",
     "Accept": "application/json",
     "User-Agent": USER_AGENT
   };
   
-  // 兼容带/不带Bearer前缀的API Key
   if (formattedApiKey) {
     if (formattedApiKey.startsWith('Bearer ') || formattedApiKey.startsWith('bearer ')) {
       headers["Authorization"] = formattedApiKey;
@@ -260,32 +251,34 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, ma
     }
   }
   
-  // 3. 兼容不支持system角色的模型/中转接口
-  let finalMessages = messages;
+  var finalMessages = messages;
   if (mergeSystemPrompt && messages.length > 0) {
-    const systemMsg = messages.find(item => item.role === 'system');
-    const userMsgs = messages.filter(item => item.role !== 'system');
+    var systemMsg = null;
+    var userMsgs = [];
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'system') {
+        systemMsg = messages[i];
+      } else {
+        userMsgs.push(messages[i]);
+      }
+    }
     if (systemMsg) {
-      // 合并system和user提示词
-      const mergedContent = `${systemMsg.content}\n\n用户需求：${userMsgs[0]?.content || ''}`;
+      var mergedContent = systemMsg.content + "\n\n用户需求：" + (userMsgs[0]?.content || '');
       finalMessages = [
         { role: "user", content: mergedContent }
       ];
     }
   }
   
-  // 4. 请求体构建（兼容中转接口参数规范）
-  const requestBody = {
+  var requestBody = {
     model: formattedModel,
     messages: finalMessages,
     temperature: temperature || 0.5,
-    stream: false, // 强制关闭流式响应，解决中转接口默认流式导致的解析失败
+    stream: false
   };
   
-  // 兼容max_tokens参数，同时适配新旧模型规范
   if (maxTokens) {
     requestBody.max_tokens = maxTokens;
-    // 新增max_completion_tokens兼容新模型，避免中转接口参数报错
     requestBody.max_completion_tokens = maxTokens;
   }
   
@@ -293,76 +286,67 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, ma
   console.log("[OpenAI兼容接口] 使用模型: " + formattedModel);
   console.log("[OpenAI兼容接口] 重试次数: " + retryCount);
   
-  try {
-    var response = await Widget.http.post(
+  return new Promise(function(resolve, reject) {
+    Widget.http.post(
       formattedUrl,
       requestBody,
       {
         headers: headers,
-        timeout: DEFAULT_TIMEOUT,
+        timeout: DEFAULT_TIMEOUT
       }
-    );
-    
-    return response;
-    
-  } catch (error) {
-    console.error("[OpenAI兼容接口] 请求失败:", error.message);
-    // 错误详情日志，方便用户排查中转接口问题
-    if (error.response) {
-      console.error("[OpenAI兼容接口] 错误状态码:", error.response.status);
-      console.error("[OpenAI兼容接口] 错误响应体:", JSON.stringify(error.response.data || error.response));
-    }
-    
-    // 自动重试逻辑：网络错误/5xx服务端错误，未超过最大重试次数时重试
-    const isRetryable = !error.response || (error.response.status >= 500 && error.response.status < 600);
-    if (isRetryable && retryCount < MAX_RETRY_COUNT) {
-      const waitTime = 1000 * (retryCount + 1); // 指数退避等待
-      console.log(`[OpenAI兼容接口] ${waitTime}ms后进行第${retryCount + 1}次重试`);
-      await delay(waitTime);
-      return callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens, mergeSystemPrompt, retryCount + 1);
-    }
-    
-    // 抛出格式化后的错误信息，精准定位问题
-    let errorMsg = "API请求失败: ";
-    if (error.response) {
-      const status = error.response.status;
-      const errorData = error.response.data || {};
-      // 兼容中转接口通用错误格式
-      const detailMsg = errorData.error?.message || errorData.message || JSON.stringify(errorData);
+    ).then(function(response) {
+      resolve(response);
+    }).catch(function(error) {
+      console.error("[OpenAI兼容接口] 请求失败:", error.message);
+      if (error.response) {
+        console.error("[OpenAI兼容接口] 错误状态码:", error.response.status);
+        console.error("[OpenAI兼容接口] 错误响应体:", JSON.stringify(error.response.data || error.response));
+      }
       
-      if (status === 401) errorMsg += "密钥无效/未授权，请检查API Key是否正确";
-      else if (status === 404) errorMsg += "接口地址不存在，请检查API地址是否正确";
-      else if (status === 429) errorMsg += "请求频率超限/余额不足，请检查账户配额";
-      else if (status >= 500) errorMsg += "服务端错误，请稍后重试或联系接口服务商";
-      else errorMsg += `状态码${status}，详情：${detailMsg}`;
-    } else {
-      errorMsg += error.message || "网络异常，请检查网络连接";
-    }
-    
-    throw new Error(errorMsg);
-  }
+      var isRetryable = !error.response || (error.response.status >= 500 && error.response.status < 600);
+      if (isRetryable && retryCount < MAX_RETRY_COUNT) {
+        var waitTime = 1000 * (retryCount + 1);
+        console.log("[OpenAI兼容接口] " + waitTime + "ms后进行第" + (retryCount + 1) + "次重试");
+        delay(waitTime).then(function() {
+          callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens, mergeSystemPrompt, retryCount + 1)
+            .then(resolve)
+            .catch(reject);
+        });
+        return;
+      }
+      
+      var errorMsg = "API请求失败: ";
+      if (error.response) {
+        var status = error.response.status;
+        var errorData = error.response.data || {};
+        var detailMsg = errorData.error?.message || errorData.message || JSON.stringify(errorData);
+        
+        if (status === 401) errorMsg += "密钥无效/未授权，请检查API Key是否正确";
+        else if (status === 404) errorMsg += "接口地址不存在，请检查API地址是否正确";
+        else if (status === 429) errorMsg += "请求频率超限/余额不足，请检查账户配额";
+        else if (status >= 500) errorMsg += "服务端错误，请稍后重试或联系接口服务商";
+        else errorMsg += "状态码" + status + "，详情：" + detailMsg;
+      } else {
+        errorMsg += error.message || "网络异常，请检查网络连接";
+      }
+      
+      reject(new Error(errorMsg));
+    });
+  });
 }
 
-/**
- * Gemini API 调用 - 官方格式（保留原有逻辑，无改动）
- */
-async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
-  // 移除末尾斜杠
+function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
   var baseUrl = apiUrl.replace(/\/$/, '');
-  
-  // Gemini官方URL格式
   var fullUrl = baseUrl + '/models/' + model + ':generateContent';
   fullUrl += '?key=' + encodeURIComponent(apiKey);
   
   console.log("[Gemini] 请求URL: " + fullUrl);
   
-  // 从userPrompt中提取类型
   var typeInfo = userPrompt;
   if (userPrompt.includes('想看')) {
     typeInfo = userPrompt.replace('我想看', '').replace('类型的作品', '').replace('类似《', '').replace('》的作品', '').trim();
   }
   
-  // Gemini专用提示词
   var promptText = "请推荐" + count + "部" + typeInfo + "类型的影视作品。\n\n" +
     "【输出要求】\n" +
     "1. 只返回剧名，每行一个\n" +
@@ -375,7 +359,6 @@ async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
     "阿凡达\n\n" +
     "请开始推荐：";
   
-  // Gemini请求体格式
   var requestBody = {
     contents: [
       {
@@ -412,8 +395,8 @@ async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
     ]
   };
   
-  try {
-    var response = await Widget.http.post(
+  return new Promise(function(resolve, reject) {
+    Widget.http.post(
       fullUrl,
       requestBody,
       {
@@ -421,57 +404,46 @@ async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
           "Content-Type": "application/json",
           "User-Agent": USER_AGENT
         },
-        timeout: DEFAULT_TIMEOUT,
+        timeout: DEFAULT_TIMEOUT
       }
-    );
-    
-    // 解析Gemini响应
-    var content = "";
-    
-    if (response) {
-      // 标准Gemini响应格式
-      if (response.candidates && response.candidates[0]) {
-        var candidate = response.candidates[0];
-        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-          content = candidate.content.parts[0].text || "";
+    ).then(function(response) {
+      var content = "";
+      if (response) {
+        if (response.candidates && response.candidates[0]) {
+          var candidate = response.candidates[0];
+          if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+            content = candidate.content.parts[0].text || "";
+          }
+        } else if (response.data && response.data.candidates && response.data.candidates[0]) {
+          var candidate = response.data.candidates[0];
+          if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+            content = candidate.content.parts[0].text || "";
+          }
         }
       }
-      // 某些SDK可能包装在data字段
-      else if (response.data && response.data.candidates && response.data.candidates[0]) {
-        var candidate = response.data.candidates[0];
-        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-          content = candidate.content.parts[0].text || "";
-        }
+      
+      console.log("[Gemini] 原始响应长度: " + content.length);
+      if (content.length > 0) {
+        console.log("[Gemini] 响应预览: " + content.substring(0, 100));
       }
-    }
-    
-    console.log("[Gemini] 原始响应长度: " + content.length);
-    if (content.length > 0) {
-      console.log("[Gemini] 响应预览: " + content.substring(0, 100));
-    }
-    
-    return content;
-    
-  } catch (error) {
-    console.error("[Gemini] 请求失败:", error.message);
-    if (error.response) {
-      console.error("[Gemini] 错误状态:", error.response.status);
-      console.error("[Gemini] 错误详情:", JSON.stringify(error.response.data));
-    }
-    throw error;
-  }
+      
+      resolve(content);
+    }).catch(function(error) {
+      console.error("[Gemini] 请求失败:", error.message);
+      if (error.response) {
+        console.error("[Gemini] 错误状态:", error.response.status);
+        console.error("[Gemini] 错误详情:", JSON.stringify(error.response.data));
+      }
+      reject(error);
+    });
+  });
 }
 
-/**
- * 从响应中提取内容（增强兼容中转接口返回格式）
- */
 function extractContent(response) {
   if (!response) return "";
   
-  // 优先处理data包裹的响应体（大部分中转接口的标准格式）
-  const target = response.data ? response.data : response;
+  var target = response.data ? response.data : response;
   
-  // 标准OpenAI格式
   if (target.choices && target.choices[0]) {
     var choice = target.choices[0];
     if (choice.message && choice.message.content) {
@@ -480,13 +452,11 @@ function extractContent(response) {
     if (choice.text) {
       return choice.text.trim();
     }
-    // 兼容部分中转接口的delta字段（非流式异常返回）
     if (choice.delta && choice.delta.content) {
       return choice.delta.content.trim();
     }
   }
   
-  // 如果是纯文本
   if (typeof response === 'string') {
     return response.trim();
   }
@@ -494,30 +464,32 @@ function extractContent(response) {
   return "";
 }
 
-/**
- * 通用 AI 调用入口（新增合并提示词参数传递）
- */
-async function callAI(config) {
+function callAI(config) {
   var apiUrl = config.apiUrl;
   var apiKey = config.apiKey;
   var model = config.model;
   var format = config.format || "openai";
   var prompt = config.prompt;
   var count = config.count || 5;
-  var mergeSystemPrompt = config.mergeSystemPrompt || false;
+  var mergeSystemPrompt = config.mergeSystemPrompt || "false";
   
-  var content = "";
-  
-  try {
+  return new Promise(function(resolve, reject) {
     console.log("[AI] 调用格式: " + format + ", 模型: " + model);
     console.log("[AI] 用户输入: " + prompt);
     console.log("[AI] API地址: " + apiUrl);
     
     if (format === "gemini") {
-      // Gemini格式
-      content = await callGeminiFormat(apiUrl, apiKey, model, prompt, count);
+      callGeminiFormat(apiUrl, apiKey, model, prompt, count)
+        .then(function(content) {
+          if (!content || content.trim().length === 0) {
+            reject(new Error("AI返回内容为空，请检查模型是否正常响应"));
+            return;
+          }
+          console.log("[AI] 原始响应:", content);
+          resolve(content);
+        })
+        .catch(reject);
     } else {
-      // OpenAI格式（默认，适用于所有中转接口）
       var systemPrompt = "你是一个专业的影视推荐助手。请根据用户的需求，推荐" + count + "部合适的影视作品。\n\n" +
         "【严格输出要求】\n" +
         "1. 只返回剧名，每行一个\n" +
@@ -536,318 +508,32 @@ async function callAI(config) {
         { role: "user", content: userPrompt }
       ];
       
-      var response = await callOpenAIFormat(apiUrl, apiKey, model, messages, 0.5, 800, mergeSystemPrompt);
-      content = extractContent(response);
+      callOpenAIFormat(apiUrl, apiKey, model, messages, 0.5, 800, mergeSystemPrompt)
+        .then(function(response) {
+          var content = extractContent(response);
+          if (!content || content.trim().length === 0) {
+            reject(new Error("AI返回内容为空，请检查模型是否正常响应"));
+            return;
+          }
+          console.log("[AI] 原始响应:", content);
+          resolve(content);
+        })
+        .catch(reject);
     }
-    
-    if (!content || content.trim().length === 0) {
-      throw new Error("AI返回内容为空，请检查模型是否正常响应");
-    }
-    
-    console.log("[AI] 原始响应:", content);
-    return content;
-    
-  } catch (error) {
-    console.error("AI API调用失败:", error.message);
-    throw error;
-  }
+  });
 }
 
-// ==================== 3. 工具函数（保留原有逻辑，优化稳定性） ====================
-
-/**
- * 解析剧名 - 增强版，支持空格分隔
- */
+// ==================== 4. 剧名解析工具函数 ====================
 function parseNames(content) {
   if (!content || typeof content !== 'string') return [];
   
   var names = [];
-  
-  // 先尝试按行分割
   var lines = content.split("\n");
   
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
     if (!line) continue;
     
-    // 清理行内容
     line = line
       .replace(/^[\d\+\-\*•\s\.、，,。]*/g, '')
-      .replace(/[《》""''「」\[\]【】()（）]/g, '')
-      .replace(/[0-9]{4}年/g, '')
-      .replace(/[0-9]+集/g, '')
-      .replace(/导演|主演|类型|地区|语言|评分|推荐|理由|说明|注：|：|:|\||/g, '')
-      .trim();
-    
-    if (line && line.length >= 2 && line.length <= 30) {
-      names.push(line);
-    }
-  }
-  
-  // 如果没有按行解析到结果，尝试按空格分割
-  if (names.length === 0) {
-    var parts = content.split(/\s+/);
-    for (var j = 0; j < parts.length; j++) {
-      var part = parts[j].trim();
-      if (part && part.length >= 2 && part.length <= 30 && !part.match(/^[0-9]+$/)) {
-        names.push(part);
-      }
-    }
-  }
-  
-  // 如果还没有结果，尝试按逗号分割
-  if (names.length === 0 && content.includes(',')) {
-    var parts = content.split(/[,，、]/);
-    for (var k = 0; k < parts.length; k++) {
-      var part = parts[k].trim();
-      if (part && part.length >= 2 && part.length <= 30) {
-        names.push(part);
-      }
-    }
-  }
-  
-  // 去重
-  var unique = [];
-  var seen = {};
-  for (var n = 0; n < names.length; n++) {
-    var name = names[n];
-    if (!seen[name]) {
-      seen[name] = true;
-      unique.push(name);
-    }
-  }
-  
-  console.log("[解析] 提取到 " + unique.length + " 个剧名: " + unique.join(", "));
-  return unique;
-}
-
-/**
- * 查询TMDB详情
- */
-async function getTmdbDetail(title, mediaType, apiKey) {
-  if (!title || !title.trim()) return null;
-
-  // 清理标题
-  var cleanTitle = title
-    .replace(/[（(][^）)]*[)）]/g, '')
-    .replace(/[\[【][^\]】]*[\]】]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  try {
-    var responseData;
-    
-    if (apiKey) {
-      var searchUrl = "https://api.themoviedb.org/3/search/" + mediaType;
-      var params = {
-        api_key: apiKey,
-        query: cleanTitle,
-        language: "zh-CN",
-        include_adult: false
-      };
-
-      var response = await Widget.http.get(searchUrl, { 
-        params: params,
-        headers: { "User-Agent": USER_AGENT },
-        timeout: 10000,
-      });
-      
-      responseData = response.data;
-    } else {
-      // 使用内置查询
-      responseData = await Widget.tmdb.get("/search/" + mediaType, {
-        params: { query: cleanTitle, language: "zh-CN" }
-      });
-    }
-
-    if (!responseData || !responseData.results || responseData.results.length === 0) {
-      return null;
-    }
-
-    var item = responseData.results[0];
-    return {
-      id: item.id,
-      type: "tmdb",
-      title: item.title || item.name,
-      description: item.overview || "",
-      posterPath: item.poster_path,
-      backdropPath: item.backdrop_path,
-      releaseDate: item.release_date || item.first_air_date || "",
-      rating: item.vote_average || 0,
-      mediaType: mediaType
-    };
-  } catch (error) {
-    console.error("[TMDB] 请求失败: " + error.message);
-    return null;
-  }
-}
-
-// ==================== 4. 列表加载函数（适配新增参数） ====================
-
-async function loadAIList(params) {
-  params = params || {};
-  
-  try {
-    // 获取配置
-    var aiConfig = {
-      apiUrl: params.aiApiUrl || "",
-      apiKey: params.aiApiKey || "",
-      model: params.aiModel || "",
-      format: params.aiApiFormat || "openai",
-      prompt: params.prompt || "",
-      count: parseInt(params.recommendCount) || 9,
-      mergeSystemPrompt: params.mergeSystemPrompt || false
-    };
-    
-    var tmdbKey = params.TMDB_API_KEY || "";
-    
-    // 验证配置
-    if (!aiConfig.apiUrl) throw new Error("请配置AI API地址");
-    if (!aiConfig.apiKey) throw new Error("请配置AI API密钥");
-    if (!aiConfig.model) throw new Error("请配置AI模型名称");
-    if (!aiConfig.prompt) throw new Error("请输入想看的内容");
-    
-    console.log("[AI推荐] 使用API: " + aiConfig.apiUrl);
-    console.log("[AI推荐] 使用模型: " + aiConfig.model);
-    console.log("[AI推荐] 使用格式: " + aiConfig.format);
-    
-    // 调用AI
-    var content = await callAI(aiConfig);
-    var names = parseNames(content);
-    
-    // 确保不超过请求数量
-    names = names.slice(0, aiConfig.count);
-    
-    if (names.length === 0) {
-      throw new Error("未能解析到推荐结果，请检查模型输出是否符合要求");
-    }
-    
-    console.log("[AI推荐] 最终推荐: " + names.join(", "));
-    
-    // 并行查询TMDB
-    var promises = names.map(function(name) {
-      return new Promise(function(resolve) {
-        getTmdbDetail(name, "tv", tmdbKey)
-          .then(function(detail) {
-            if (detail) {
-              resolve(detail);
-            } else {
-              return getTmdbDetail(name, "movie", tmdbKey);
-            }
-          })
-          .then(function(detail) {
-            resolve(detail);
-          })
-          .catch(function() {
-            resolve(null);
-          });
-      });
-    });
-    
-    var results = await Promise.all(promises);
-    var validResults = results.filter(function(r) { return r !== null; });
-    
-    console.log("[AI推荐] 成功获取 " + validResults.length + " 个TMDB详情");
-    
-    if (validResults.length === 0) {
-      // 返回AI原始结果
-      return names.map(function(name, index) {
-        return {
-          id: "ai_" + index + "_" + Date.now(),
-          type: "tmdb",
-          title: name,
-          description: "AI智能推荐",
-          posterPath: null,
-          backdropPath: null,
-          releaseDate: "",
-          rating: 0,
-          mediaType: "movie"
-        };
-      });
-    }
-    
-    return validResults;
-    
-  } catch (error) {
-    console.error("loadAIList 错误:", error);
-    throw error;
-  }
-}
-
-async function loadSimilarList(params) {
-  params = params || {};
-  
-  try {
-    // 获取配置
-    var aiConfig = {
-      apiUrl: params.aiApiUrl || "",
-      apiKey: params.aiApiKey || "",
-      model: params.aiModel || "",
-      format: params.aiApiFormat || "openai",
-      count: parseInt(params.recommendCount) || 9,
-      mergeSystemPrompt: params.mergeSystemPrompt || false
-    };
-    
-    var refTitle = params.referenceTitle || "";
-    var tmdbKey = params.TMDB_API_KEY || "";
-    
-    if (!aiConfig.apiUrl || !aiConfig.apiKey || !aiConfig.model) {
-      throw new Error("请配置完整的AI API信息");
-    }
-    if (!refTitle) throw new Error("请输入喜欢的作品");
-    
-    // 构建相似推荐提示词
-    aiConfig.prompt = "类似《" + refTitle + "》的作品";
-    
-    var content = await callAI(aiConfig);
-    var names = parseNames(content);
-    names = names.slice(0, aiConfig.count);
-    
-    // 并行查询TMDB
-    var promises = names.map(function(name) {
-      return new Promise(function(resolve) {
-        getTmdbDetail(name, "tv", tmdbKey)
-          .then(function(detail) {
-            if (detail) {
-              resolve(detail);
-            } else {
-              return getTmdbDetail(name, "movie", tmdbKey);
-            }
-          })
-          .then(function(detail) {
-            resolve(detail);
-          })
-          .catch(function() {
-            resolve(null);
-          });
-      });
-    });
-    
-    var results = await Promise.all(promises);
-    var validResults = results.filter(function(r) { return r !== null; });
-    
-    if (validResults.length === 0) {
-      return names.map(function(name, index) {
-        return {
-          id: "similar_" + index + "_" + Date.now(),
-          type: "tmdb",
-          title: name,
-          description: "AI相似推荐",
-          posterPath: null,
-          backdropPath: null,
-          releaseDate: "",
-          rating: 0,
-          mediaType: "movie"
-        };
-      });
-    }
-    
-    return validResults;
-    
-  } catch (error) {
-    console.error("loadSimilarList 错误:", error);
-    throw error;
-  }
-}
-
-console.log("AI影视推荐模块v5.0.0 (全兼容中转接口版本)加载成功");
+      .replace(/[《》""''「」\[\]【】()（）]/g, '')...
