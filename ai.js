@@ -4,50 +4,13 @@
 
 const USER_AGENT = "Mozilla/5.0";
 
-// ==================== API地址自动补全 ====================
-function normalizeApiUrl(apiUrl, format) {
-  if (!apiUrl) return "";
-
-  apiUrl = apiUrl.replace(/\/+$/, "");
-
-  // Gemini 单独处理
-  if (format === "gemini") return apiUrl;
-
-  if (
-    apiUrl.includes("/chat/completions") ||
-    apiUrl.includes("/responses")
-  ) {
-    return apiUrl;
-  }
-
-  if (apiUrl.endsWith("/v1")) {
-    return apiUrl + "/chat/completions";
-  }
-
-  if (!apiUrl.includes("/v1")) {
-    return apiUrl + "/v1/chat/completions";
-  }
-
-  return apiUrl;
-}
-
-// ==================== JSCore 兼容的 sleep ====================
-function sleep(ms) {
-  // JSCore 环境中 setTimeout 不可用，使用同步循环模拟
-  // 实际上对于网络请求之间的延迟，我们使用 Date.now() 自旋
-  var start = Date.now();
-  while (Date.now() - start < ms) {
-    // 自旋等待，不阻塞其他操作
-  }
-}
-
 // ==================== Metadata ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
+  description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方中转接口",
   author: "crush7s",
-  version: "5.2.1",
+  version: "5.2.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -211,6 +174,42 @@ function extractContent(res) {
   return "";
 }
 
+// ==================== API地址自动补全 ====================
+function normalizeApiUrl(apiUrl, format) {
+  if (!apiUrl) return "";
+
+  apiUrl = apiUrl.replace(/\/+$/, "");
+
+  // Gemini 单独处理
+  if (format === "gemini") return apiUrl;
+
+  if (
+    apiUrl.includes("/chat/completions") ||
+    apiUrl.includes("/responses")
+  ) {
+    return apiUrl;
+  }
+
+  if (apiUrl.endsWith("/v1")) {
+    return apiUrl + "/chat/completions";
+  }
+
+  if (!apiUrl.includes("/v1")) {
+    return apiUrl + "/v1/chat/completions";
+  }
+
+  return apiUrl;
+}
+
+// ==================== JSCore 兼容的 sleep ====================
+function sleep(ms) {
+  // JSCore 环境中 setTimeout 不可用，使用同步循环模拟
+  // 实际上对于网络请求之间的延迟，我们使用 Date.now() 自旋
+  var start = Date.now();
+  while (Date.now() - start < ms) {
+    // 自旋等待，不阻塞其他操作
+  }
+}
 // ==================== AI入口（只调用一次） ====================
 async function callAI(config) {
 
