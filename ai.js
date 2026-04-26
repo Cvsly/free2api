@@ -33,8 +33,6 @@ function normalizeApiUrl(apiUrl, format) {
 
 // ==================== JSCore 兼容的 sleep ====================
 function sleep(ms) {
-  // JSCore 环境中 setTimeout 不可用，使用同步循环模拟
-  // 实际上对于网络请求之间的延迟，我们使用 Date.now() 自旋
   var start = Date.now();
   while (Date.now() - start < ms) {
     // 自旋等待，不阻塞其他操作
@@ -47,28 +45,29 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
   author: "crush7s",
-  version: "5.2.5",
+  version: "5.2.6",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
   globalParams: [
     {
-      name: "aiApiUrl",
-      title: "API 接口地址",
+      name: "aiApiPreset",
+      title: "API 地址预设",
       type: "enumeration",
       enumOptions: [
         { title: "OpenAI 官方", value: "https://api.openai.com" },
         { title: "Gemini 官方", value: "https://generativelanguage.googleapis.com" },
-        { title: "自定义地址", value: "custom" }
+        { title: "自定义地址", value: "" }
       ],
       defaultValue: "https://api.openai.com"
     },
     {
-      name: "customApiUrl",
-      title: "自定义API地址",
+      name: "aiApiUrl",
+      title: "API 接口地址",
       type: "input",
-      required: false,
-      placeholder: "选择\"自定义地址\"时填写完整URL"
+      required: true,
+      defaultValue: "https://api.openai.com",
+      placeholder: "可自由编辑，如：https://api.openai.com"
     },
     {
       name: "aiApiFormat",
@@ -138,10 +137,9 @@ var WidgetMetadata = {
 
 // ==================== 获取实际API地址 ====================
 function getActualApiUrl(params) {
-  if (params.aiApiUrl === "custom") {
-    return params.customApiUrl || "";
-  }
-  return params.aiApiUrl;
+  // 直接使用 aiApiUrl，它是可自由编辑的
+  var url = params.aiApiUrl || params.aiApiPreset || "";
+  return url.trim();
 }
 
 // ==================== OpenAI / 中转 ====================
@@ -276,11 +274,8 @@ function parseNames(text) {
     .split("\n")
     .map(function(t) { return t.trim(); })
     .filter(function(t) { 
-      // 过滤掉空行、编号行、提示文字
       if (t.length < 2) return false;
-      // 去除常见的编号格式
       var cleaned = t.replace(/^\d+[\.\、\)）]\s*/, '');
-      // 过滤掉明显的非片名行
       if (cleaned.indexOf("推荐") === 0) return false;
       if (cleaned.indexOf("以下") === 0) return false;
       if (cleaned.indexOf("影视") !== -1 && cleaned.length < 10) return false;
@@ -308,7 +303,6 @@ async function searchTMDB(title, type, key) {
           }
         }
       );
-      // 根据环境不同，可能需要 .data
       if (res.data) {
         res = res.data;
       }
@@ -345,14 +339,11 @@ async function loadAIList(params) {
   // 获取prompt：优先使用自定义输入，如果为空则使用推荐类型
   var promptValue = "";
   if (params.recommendType === "") {
-    // 自定义输入模式，使用customPrompt
     promptValue = params.customPrompt || "";
   } else {
-    // 选择了预设类型
     promptValue = params.recommendType;
   }
 
-  // 如果最终prompt为空，使用默认值
   if (!promptValue || promptValue.trim() === "") {
     promptValue = "热门高分";
   }
@@ -400,19 +391,15 @@ async function loadAIList(params) {
   var tmdbKey = params.TMDB_API_KEY;
   var results = [];
   
-  // 逐个查询，先查电影，没找到再查电视剧
   for (var i = 0; i < names.length; i++) {
     var name = names[i];
     
-    // 先查电影
     var result = await searchTMDB(name, "movie", tmdbKey);
     
-    // 没找到电影，尝试电视剧
     if (!result) {
       result = await searchTMDB(name, "tv", tmdbKey);
     }
     
-    // 如果找到了就添加，否则创建基础条目
     if (result) {
       results.push(result);
     } else {
@@ -439,4 +426,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.2.5（JSCore兼容）已加载");
+console.log("✅ AI影视推荐模块 v5.2.6（JSCore兼容）已加载");
