@@ -1,6 +1,7 @@
-20260426 17:44:39 || /**
+// 20260426 17:58:50
+/**
  * AI 影视推荐模块
- * 完全兼容ForwardWidget官方规范，支持所有OpenAI格式第三方接口
+ * 完全兼容ForwardWidget官方规范，支持所有OpenAI格式第三方中转接口
  */
 
 var USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -10,10 +11,10 @@ var MAX_RETRY_COUNT = 2;
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "基于自定义大模型的智能影视推荐，兼容OpenAI/Gemini及所有第三方中转接口",
+  description: "基于自定义大模型的智能影视推荐，兼容OpenAI、Gemini及所有第三方中转接口",
   author: "crush7s",
   site: "https://github.com/InchStudio/ForwardWidgets",
-  version: "6.0.1",
+  version: "6.0.2",
   requiredVersion: "0.0.1",
   detailCacheDuration: 3600,
   globalParams: [
@@ -763,4 +764,4 @@ async function nlSearch(params) {
   }
 }
 
-console.log("AI影视推荐模块v6.0.1 加载成功");
+console.log("AI影视推荐模块v6.0.2 加载成功");
