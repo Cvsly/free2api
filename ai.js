@@ -1,6 +1,8 @@
 /**
- * AI 影视推荐模块（JSCore 兼容版）
+ * AI 影视推荐模块（JSCore 兼容 + 灵活配置版）
  */
+
+const USER_AGENT = "Mozilla/5.0";
 
 // ==================== API地址自动补全 ====================
 function normalizeApiUrl(apiUrl, format) {
@@ -17,7 +19,7 @@ function normalizeApiUrl(apiUrl, format) {
     return apiUrl;
   }
 
-  if (apiUrl.endsWith("/v1")) {
+  if (apiUrl.lastIndexOf("/v1") === apiUrl.length - 3) {
     return apiUrl + "/chat/completions";
   }
 
@@ -28,121 +30,37 @@ function normalizeApiUrl(apiUrl, format) {
   return apiUrl;
 }
 
-// ==================== 推荐模板 ====================
-var RECOMMEND_TEMPLATES = {
-  "high_score_anime": {
-    label: "高分动漫",
-    prompt: "豆瓣评分9分以上的日本动漫电影或剧集"
-  },
-  "high_score_movie": {
-    label: "高分电影",
-    prompt: "豆瓣评分9分以上的经典电影"
-  },
-  "high_score_tv": {
-    label: "高分剧集",
-    prompt: "豆瓣评分9分以上的电视剧"
-  },
-  "oscar_best": {
-    label: "奥斯卡最佳影片",
-    prompt: "历年奥斯卡最佳影片获奖作品"
-  },
-  "scifi_classic": {
-    label: "科幻经典",
-    prompt: "经典科幻电影"
-  },
-  "anime_movie": {
-    label: "动画电影",
-    prompt: "经典动画电影，包括日本动画和迪士尼皮克斯"
-  },
-  "crime_suspense": {
-    label: "悬疑烧脑",
-    prompt: "悬疑推理烧脑电影，剧情反转"
-  },
-  "comedy": {
-    label: "爆笑喜剧",
-    prompt: "搞笑喜剧电影"
-  },
-  "romance": {
-    label: "浪漫爱情",
-    prompt: "经典爱情电影"
-  },
-  "horror": {
-    label: "恐怖惊悚",
-    prompt: "经典恐怖惊悚电影"
-  },
-  "action": {
-    label: "动作爽片",
-    prompt: "动作大片，场面震撼"
-  },
-  "documentary": {
-    label: "高分纪录片",
-    prompt: "豆瓣高分纪录片"
-  },
-  "chinese_classic": {
-    label: "华语经典",
-    prompt: "华语电影经典作品"
-  },
-  "korean_movie": {
-    label: "韩国电影",
-    prompt: "经典韩国电影"
-  },
-  "healing": {
-    label: "治愈温情",
-    prompt: "治愈系温情电影"
-  },
-  "mind_blowing": {
-    label: "脑洞大开",
-    prompt: "脑洞大开、设定新奇、世界观独特的电影"
-  },
-  "growth": {
-    label: "成长励志",
-    prompt: "关于成长、励志的正能量电影"
-  },
-  "war": {
-    label: "战争历史",
-    prompt: "经典战争历史题材电影"
-  },
-  "superhero": {
-    label: "超级英雄",
-    prompt: "漫威DC超级英雄电影"
-  },
-  "cyberpunk": {
-    label: "赛博朋克",
-    prompt: "赛博朋克风格电影"
-  }
-};
-
 // ==================== Metadata ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "内置推荐模板 + 自定义数量 + TMDB详情",
+  description: "智能推荐 + 自定义数量 + 内置提示词",
   author: "crush7s",
   version: "5.3.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
   globalParams: [
-    { name: "aiApiUrl", title: "AI API 地址", type: "input", required: true },
+    { name: "aiApiUrl", title: "AI API 地址", type: "input", required: true, placeholder: "https://api.openai.com" },
     {
       name: "aiApiFormat",
       title: "API 格式",
       type: "enumeration",
       enumOptions: [
-        { title: "OpenAI", value: "openai" },
+        { title: "OpenAI 兼容", value: "openai" },
         { title: "Gemini", value: "gemini" }
       ],
       defaultValue: "openai"
     },
-    { name: "aiApiKey", title: "API Key", type: "input", required: true },
-    { name: "aiModel", title: "模型", type: "input", defaultValue: "gpt-4o-mini" },
-    { name: "TMDB_API_KEY", title: "TMDB Key", type: "input" },
-    { 
-      name: "recommendCount", 
-      title: "推荐数量", 
-      type: "input", 
+    { name: "aiApiKey", title: "API Key", type: "input", required: true, placeholder: "sk-..." },
+    { name: "aiModel", title: "模型", type: "input", defaultValue: "gpt-4o-mini", placeholder: "gpt-4o-mini / gemini-pro" },
+    { name: "TMDB_API_KEY", title: "TMDB Key（可选）", type: "input", placeholder: "留空使用内置Key" },
+    {
+      name: "recommendCount",
+      title: "默认推荐数量",
+      type: "input",
       defaultValue: "9",
-      description: "自定义推荐数量，如 6、9、12"
+      placeholder: "例如: 6、9、12，可自定义"
     }
   ],
 
@@ -155,22 +73,15 @@ var WidgetMetadata = {
         { 
           name: "prompt", 
           title: "想看什么", 
-          type: "enumeration", 
-          required: true,
-          enumOptions: buildTemplateOptions()
-        }
-      ]
-    },
-    {
-      id: "customRecommend",
-      title: "自定义推荐",
-      functionName: "loadCustomList",
-      params: [
-        { 
-          name: "customPrompt", 
-          title: "描述你想看的", 
           type: "input", 
-          required: true 
+          required: true,
+          placeholder: "例如: 高分科幻、悬疑烧脑、治愈系动漫、类似《盗梦空间》..."
+        },
+        {
+          name: "customCount",
+          title: "推荐数量（留空使用默认）",
+          type: "input",
+          placeholder: "例如: 5、10、20"
         }
       ]
     },
@@ -179,26 +90,101 @@ var WidgetMetadata = {
       title: "相似推荐",
       functionName: "loadSimilarList",
       params: [
-        { name: "referenceTitle", title: "喜欢的作品", type: "input", required: true }
+        { 
+          name: "referenceTitle", 
+          title: "喜欢的作品", 
+          type: "input", 
+          required: true,
+          placeholder: "输入你喜欢的影视作品名称"
+        },
+        {
+          name: "similarCount",
+          title: "推荐数量（留空使用默认）",
+          type: "input",
+          placeholder: "例如: 8、10"
+        }
+      ]
+    },
+    {
+      id: "discoverModule",
+      title: "发现好片",
+      functionName: "loadDiscoverList",
+      params: [
+        {
+          name: "discoverType",
+          title: "快速选择",
+          type: "enumeration",
+          enumOptions: [
+            { title: "🔥 高分神作 (8.5+)", value: "高分神作评分8.5以上" },
+            { title: "🎬 经典必看", value: "经典必看的影视作品" },
+            { title: "🧠 烧脑悬疑", value: "烧脑悬疑反转不断的作品" },
+            { title: "😂 爆笑喜剧", value: "搞笑喜剧让人开怀大笑" },
+            { title: "🎭 剧情佳片", value: "剧情深刻打动人心的作品" },
+            { title: "🚀 科幻巨制", value: "科幻题材视觉效果震撼" },
+            { title: "👻 恐怖惊悚", value: "恐怖惊悚细思极恐的作品" },
+            { title: "💕 浪漫爱情", value: "浪漫爱情感人至深" },
+            { title: "🎌 日漫神作", value: "日本动漫神作必看" },
+            { title: "🇨🇳 国产精品", value: "国产影视精品佳作" },
+            { title: "🇰🇷 韩剧推荐", value: "韩剧高分推荐" },
+            { title: "🎥 冷门佳片", value: "冷门小众但评价极高的作品" }
+          ],
+          defaultValue: "高分神作评分8.5以上"
+        },
+        {
+          name: "discoverCount",
+          title: "推荐数量（留空使用默认）",
+          type: "input",
+          placeholder: "例如: 6、15"
+        }
       ]
     }
   ]
 };
 
-// ==================== 构建模板选项 ====================
-function buildTemplateOptions() {
-  var options = [];
-  var keys = Object.keys(RECOMMEND_TEMPLATES);
+// ==================== 提示词构建 ====================
+function buildPrompt(userInput, count) {
+  // 智能增强用户输入
+  var enhancedPrompt = userInput;
   
-  for (var i = 0; i < keys.length; i++) {
-    var template = RECOMMEND_TEMPLATES[keys[i]];
-    options.push({
-      title: template.label,
-      value: template.prompt
-    });
+  // 如果输入较短，自动扩展
+  if (userInput.length < 10) {
+    var promptMap = {
+      "科幻": "科幻题材的影视作品，包括人工智能、太空探索、时间旅行等",
+      "悬疑": "悬疑烧脑推理类影视作品，结局出人意料",
+      "喜剧": "搞笑喜剧让人捧腹大笑的影视作品",
+      "恐怖": "恐怖惊悚气氛营造出色的影视作品",
+      "爱情": "浪漫爱情故事感人至深的影视作品",
+      "动作": "动作片打斗精彩场面火爆的影视作品",
+      "动漫": "高分动漫包括日漫和国产动漫",
+      "动画": "高分动画电影和动画剧集",
+      "纪录片": "高分纪录片真实震撼",
+      "韩剧": "高分韩剧推荐",
+      "美剧": "高分美剧推荐",
+      "国产": "国产影视精品佳作",
+      "经典": "经典必看影史留名的作品",
+      "冷门": "冷门小众但评价极高的作品"
+    };
+    
+    for (var key in promptMap) {
+      if (userInput.indexOf(key) !== -1) {
+        enhancedPrompt = promptMap[key];
+        break;
+      }
+    }
   }
   
-  return options;
+  // 确保包含"影视作品"关键词
+  if (enhancedPrompt.indexOf("影视") === -1 && 
+      enhancedPrompt.indexOf("电影") === -1 && 
+      enhancedPrompt.indexOf("剧") === -1 && 
+      enhancedPrompt.indexOf("动漫") === -1 && 
+      enhancedPrompt.indexOf("动画") === -1) {
+    enhancedPrompt += "的影视作品";
+  }
+  
+  console.log("[提示词] 原始: " + userInput + " -> 增强: " + enhancedPrompt);
+  
+  return "推荐" + count + "部" + enhancedPrompt;
 }
 
 // ==================== OpenAI / 中转 ====================
@@ -223,10 +209,12 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
   for (var i = 0; i < strategies.length; i++) {
     try {
       var body = strategies[i]();
+
       return await Widget.http.post(apiUrl, body, {
         headers: headers,
         timeout: 60000
       });
+
     } catch (e) {
       if ((e.message || "").indexOf("400") !== -1) continue;
       throw e;
@@ -237,7 +225,7 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
 }
 
 // ==================== Gemini ====================
-async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
+async function callGeminiFormat(apiUrl, apiKey, model, promptText, count) {
 
   apiUrl = apiUrl.replace(/\/+$/, '');
 
@@ -250,7 +238,9 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   var body = {
     contents: [
       {
-        parts: [{ text: "推荐" + count + "部" + prompt + "影视作品，只返回名称，每行一个，不要编号" }]
+        parts: [{ 
+          text: "只返回" + count + "个影视名称，每行一个，不要编号和解释。\n" + promptText
+        }]
       }
     ]
   };
@@ -289,18 +279,16 @@ async function callAI(config) {
 
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
 
-  console.log("[AI] 单次调用，推荐 " + config.count + " 部作品");
-  console.log("[AI] 提示词: " + config.prompt);
+  console.log("[AI] 请求 " + config.count + " 部推荐");
+  console.log("[AI] URL: " + finalUrl);
+
+  var systemPrompt = "你是专业影视推荐助手。严格返回用户要求数量的影视名称。每行一个，不要编号、序号、分类标题。不要任何解释和多余文字。不要使用Markdown格式。";
+
+  var userPrompt = buildPrompt(config.prompt, config.count);
 
   var messages = [
-    { 
-      role: "system", 
-      content: "你是影视推荐助手。严格返回" + config.count + "部影视名称，每行一个，不要编号、不要解释、不要任何其他文字。\n格式示例：\n肖申克的救赎\n阿甘正传\n盗梦空间" 
-    },
-    { 
-      role: "user", 
-      content: "推荐" + config.count + "部" + config.prompt + "的影视作品" 
-    }
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
   ];
 
   if (config.format === "gemini") {
@@ -308,7 +296,7 @@ async function callAI(config) {
       config.apiUrl,
       config.apiKey,
       config.model,
-      config.prompt,
+      userPrompt,
       config.count
     );
   }
@@ -327,21 +315,35 @@ async function callAI(config) {
 function parseNames(text) {
   if (!text) return [];
   
-  return text
-    .split("\n")
-    .map(function(t) { return t.trim(); })
-    .filter(function(t) { 
-      if (t.length < 2) return false;
-      var cleaned = t.replace(/^\d+[\.\、\)）]\s*/, '');
-      if (cleaned.indexOf("推荐") === 0) return false;
-      if (cleaned.indexOf("以下") === 0) return false;
-      if (cleaned.indexOf("影视") !== -1 && cleaned.length < 10) return false;
-      return cleaned.length >= 2;
-    })
-    .map(function(t) {
-      return t.replace(/^\d+[\.\、\)）]\s*/, '').trim();
-    })
-    .slice(0, 30);
+  var lines = text.split("\n");
+  var names = [];
+  
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    
+    // 跳过空行
+    if (line.length < 2) continue;
+    
+    // 去除Markdown格式
+    line = line.replace(/^[\*\-\+#]+\s*/, '');
+    line = line.replace(/^\d+[\.\、\)）]\s*/, '');
+    line = line.replace(/^[《「『]/, '');
+    line = line.replace(/[》」』]$/, '');
+    
+    // 跳过非片名行
+    if (line.indexOf("推荐") === 0) continue;
+    if (line.indexOf("以下") === 0) continue;
+    if (line.indexOf("影视作品") !== -1 && line.length < 15) continue;
+    if (line.indexOf("---") === 0) continue;
+    
+    line = line.trim();
+    
+    if (line.length >= 2) {
+      names.push(line);
+    }
+  }
+  
+  return names.slice(0, 30);
 }
 
 // ==================== TMDB搜索 ====================
@@ -377,7 +379,9 @@ async function searchTMDB(title, type, key) {
         title: item.title || item.name,
         description: item.overview || "",
         posterPath: item.poster_path,
+        backdropPath: item.backdrop_path,
         rating: item.vote_average || 0,
+        year: (item.release_date || item.first_air_date || "").substring(0, 4),
         mediaType: type
       };
     }
@@ -385,7 +389,7 @@ async function searchTMDB(title, type, key) {
     return null;
     
   } catch (e) {
-    console.log("[TMDB] 搜索失败: " + title);
+    console.log("[TMDB] " + title + " 搜索失败");
     return null;
   }
 }
@@ -393,33 +397,26 @@ async function searchTMDB(title, type, key) {
 // ==================== 主逻辑 ====================
 async function loadAIList(params) {
 
-  // 兼容：prompt 可能是模板选择的 prompt，也可能是自定义输入
-  var userPrompt = params.prompt || params.customPrompt || "";
-  var countStr = params.recommendCount || "9";
-  
-  // 解析数量（支持自定义输入）
-  var count = parseInt(countStr);
-  if (isNaN(count) || count < 1) {
-    count = 9; // 默认值
-  }
-  if (count > 30) {
-    count = 30; // 上限
-  }
+  // 获取推荐数量
+  var count = parseInt(params.customCount) || parseInt(params.recommendCount) || 9;
+  // 限制范围
+  if (count < 1) count = 6;
+  if (count > 30) count = 30;
 
   var config = {
     apiUrl: params.aiApiUrl,
     apiKey: params.aiApiKey,
     model: params.aiModel,
     format: params.aiApiFormat,
-    prompt: userPrompt,
+    prompt: params.prompt,
     count: count
   };
 
-  console.log("[AI推荐] 开始，目标: " + count + " 部");
+  console.log("[AI推荐] " + count + "部 - " + params.prompt);
   
   // 1. 调用AI一次
   var text = await callAI(config);
-  console.log("[AI返回] " + text);
+  console.log("[AI返回] " + (text ? text.substring(0, 200) : "空"));
   
   // 2. 解析名称
   var names = parseNames(text);
@@ -430,11 +427,11 @@ async function loadAIList(params) {
       id: "ai_error",
       type: "tmdb",
       title: "未获取到推荐",
-      description: "AI返回: " + (text || "").substring(0, 100)
+      description: "请尝试更具体的描述，如"高分科幻电影""
     }];
   }
   
-  // 3. 查询TMDB
+  // 3. TMDB查询
   var tmdbKey = params.TMDB_API_KEY;
   var results = [];
   
@@ -442,6 +439,7 @@ async function loadAIList(params) {
     var name = names[i];
     
     var result = await searchTMDB(name, "movie", tmdbKey);
+    
     if (!result) {
       result = await searchTMDB(name, "tv", tmdbKey);
     }
@@ -453,30 +451,44 @@ async function loadAIList(params) {
         id: "ai_" + i,
         type: "tmdb",
         title: name,
-        description: "AI推荐，暂无详细信息"
+        description: "AI推荐",
+        rating: 0,
+        year: ""
       });
     }
-    
-    console.log("[进度] " + (i + 1) + "/" + names.length);
   }
   
-  console.log("[完成] " + results.length + " 条");
+  console.log("[完成] " + results.length + " 条结果");
+  
   return results;
 }
 
-// 自定义推荐
-async function loadCustomList(params) {
-  // 将 customPrompt 转为 prompt 参数
-  return loadAIList(params);
-}
-
-// 相似推荐
 async function loadSimilarList(params) {
-  if (!params) params = {};
-  params.prompt = "类似《" + params.referenceTitle + "》的作品";
-  return loadAIList(params);
+  var promptText = "与《" + params.referenceTitle + "》风格相似的影视作品";
+  
+  // 合并参数
+  var newParams = {};
+  for (var key in params) {
+    newParams[key] = params[key];
+  }
+  newParams.prompt = promptText;
+  newParams.customCount = params.similarCount || params.customCount;
+  
+  return loadAIList(newParams);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.0（内置模板+自定义数量）已加载");
-console.log("📋 内置推荐模板: " + Object.keys(RECOMMEND_TEMPLATES).length + " 个");
-console.log("🎬 支持模板: " + Object.values(RECOMMEND_TEMPLATES).map(function(t) { return t.label; }).join(", "));
+async function loadDiscoverList(params) {
+  var newParams = {};
+  for (var key in params) {
+    newParams[key] = params[key];
+  }
+  newParams.prompt = params.discoverType;
+  newParams.customCount = params.discoverCount;
+  
+  return loadAIList(newParams);
+}
+
+console.log("✅ AI影视推荐 v5.3.0 已加载");
+console.log("   - 支持自定义推荐数量");
+console.log("   - 内置快速发现模块");
+console.log("   - 智能提示词增强");
