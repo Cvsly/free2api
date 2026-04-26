@@ -20,20 +20,16 @@ var WidgetMetadata = {
       title: "AI API 地址",
       type: "input",
       required: true,
-      defaultValue: "https://api.openai.com/v1/chat/completions",
+      defaultValue: "https://api.openai.com",
       description: "点击右侧按钮可选择预设API地址",
       placeholders: [
         {
           title: "OpenAI 官方",
-          value: "https://api.openai.com/v1/chat/completions",
+          value: "https://api.openai.com",
         },
         {
           title: "Gemini 官方",
-          value: "https://generativelanguage.googleapis.com/v1beta",
-        },
-        {
-          title: "硅基流动",
-          value: "https://api.siliconflow.cn/v1/chat/completions",
+          value: "https://generativelanguage.googleapis.com",
         },
         {
           title: "自定义",
