@@ -47,7 +47,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
   author: "crush7s",
-  version: "5.2.2",
+  version: "5.2.3",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -82,24 +82,12 @@ var WidgetMetadata = {
       functionName: "loadAIList",
       params: [
         {
-          name: "recommendType",
-          title: "推荐类型",
-          type: "enumeration",
-          enumOptions: [
-            { title: "自定义输入", value: "custom" },
-            { title: "悬疑烧脑", value: "悬疑烧脑、反转不断、高智商对决" },
-            { title: "科幻巨制", value: "科幻巨制、视觉震撼、未来世界" },
-            { title: "温情治愈", value: "温情治愈、感人至深、家庭与成长" },
-            { title: "爆笑喜剧", value: "爆笑喜剧、轻松幽默、从头笑到尾" },
-            { title: "动作爽片", value: "动作爽片、全程高能、打斗精彩" },
-            { title: "恐怖惊悚", value: "恐怖惊悚、细思极恐、胆小勿入" },
-            { title: "经典必看", value: "影史经典、口碑神作、必看榜单" },
-            { title: "动画佳作", value: "动画佳作、画风唯美、老少皆宜" },
-            { title: "冷门神作", value: "冷门神作、小众佳片、被忽视的宝藏" }
-          ],
-          defaultValue: "custom"
-        },
-        { name: "prompt", title: "想看什么（自定义）", type: "input", required: false }
+          name: "prompt",
+          title: "想看什么",
+          type: "input",
+          required: true,
+          placeholder: "输入关键词或选择类型：悬疑烧脑 / 科幻巨制 / 温情治愈 / 爆笑喜剧 / 动作爽片 / 恐怖惊悚 / 经典必看 / 动画佳作 / 冷门神作"
+        }
       ]
     },
     {
@@ -310,12 +298,9 @@ async function searchTMDB(title, type, key) {
 
 // ==================== 主逻辑 ====================
 async function loadAIList(params) {
-  // 处理推荐类型与自定义提示
+
   var promptValue = params.prompt;
-  if (params.recommendType && params.recommendType !== "custom") {
-    promptValue = params.recommendType;
-  }
-  if (!promptValue) {
+  if (!promptValue || promptValue.trim() === "") {
     promptValue = "热门高分";
   }
 
@@ -392,9 +377,8 @@ async function loadAIList(params) {
 
 async function loadSimilarList(params) {
   if (!params) params = {};
-  params.recommendType = "类似《" + params.referenceTitle + "》的作品";
-  params.prompt = "";
+  params.prompt = "类似《" + params.referenceTitle + "》的作品";
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.2.2（JSCore兼容）已加载");
+console.log("✅ AI影视推荐模块 v5.2.3（JSCore兼容）已加载");
