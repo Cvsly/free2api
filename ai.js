@@ -1,7 +1,6 @@
 /**
- * AI 影视推荐模块 - 兼容增强版
- * 支持 OpenAI/Gemini/硅基流动/MatAPI/MetAPI 等中转站
- * 修复了 403 Forbidden 以及路径拼接问题
+ * AI 影视推荐模块 v5.2.0
+ * 针对 MetAPI/MatAPI 400 错误深度优化
  */
 
 const USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
@@ -10,264 +9,201 @@ const USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Apple
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "基于自定义AI的智能影视推荐，已优化中转站兼容性",
+  description: "修复 400 错误。注：模型名请填写 gpt-4o-mini 或 deepseek-chat",
   author: "crush7s",
-  site: "",
-  version: "5.0.0",
-  requiredVersion: "0.0.2",
-  detailCacheDuration: 3600,
-  
+  version: "5.2.0",
   globalParams: [
     {
       name: "aiApiUrl",
-      title: "AI API 地址",
+      title: "API 地址",
       type: "input",
       required: true,
-      defaultValue: "https://api.openai.com/v1/chat/completions",
-      description: "支持中转地址，如 https://metapi.omgd.eu.org",
-    },
-    {
-      name: "aiApiFormat",
-      title: "API 格式",
-      type: "enumeration",
-      enumOptions: [
-        { title: "OpenAI 格式 (通用)", value: "openai" },
-        { title: "Gemini 格式", value: "gemini" },
-      ],
-      defaultValue: "openai",
+      defaultValue: "https://metapi.omgd.eu.org",
+      description: "填写中转站基础地址即可"
     },
     {
       name: "aiApiKey",
-      title: "AI API 密钥",
+      title: "API Key",
       type: "input",
-      required: true,
-      description: "你的 API Key",
+      required: true
     },
     {
       name: "aiModel",
-      title: "AI 模型名称",
+      title: "模型名称",
       type: "input",
       required: true,
-      defaultValue: "gpt-4o-mini",
-      description: "推荐：gpt-4o-mini, deepseek-chat, qwen-plus",
+      defaultValue: "gpt-4o-mini"
     },
     {
       name: "TMDB_API_KEY",
       title: "TMDB API Key",
       type: "input",
       required: false,
-      description: "可选，留空则使用内置 Key",
+      description: "留空使用内置查询"
     },
     {
       name: "recommendCount",
       title: "推荐数量",
       type: "enumeration",
       enumOptions: [
-        { title: "3部", value: "3" },
         { title: "6部", value: "6" },
-        { title: "9部", value: "9" },
+        { title: "9部", value: "9" }
       ],
-      defaultValue: "9",
-    },
+      defaultValue: "6"
+    }
   ],
-  
   modules: [
     {
       id: "smartRecommend",
       title: "AI智能推荐",
-      description: "根据描述智能推荐影视",
       functionName: "loadAIList",
-      requiresWebView: false,
       params: [
-        {
-          name: "prompt",
-          title: "想看什么",
-          type: "input",
-          required: true,
-          value: "轻松喜剧",
-        },
-      ],
-    },
-  ],
+        { name: "prompt", title: "想看什么", type: "input", required: true, value: "轻松喜剧" }
+      ]
+    }
+  ]
 };
 
-// ==================== 2. AI API 适配器 ====================
+// ==================== 2. 核心 API 适配器 ====================
 
-/**
- * OpenAI 格式 API 调用 (增强 Header 伪装)
- */
-async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens) {
-  var authHeader = apiKey.startsWith('Bearer ') ? apiKey : "Bearer " + apiKey;
+async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
+  // 1. 严格清理 Key 和模型名
+  var cleanKey = apiKey.trim().replace(/^Bearer\s+/i, '');
+  var cleanModel = model.trim();
   
+  // 2. 补全 Authorization
   var headers = {
     "Content-Type": "application/json",
-    "Authorization": authHeader,
+    "Authorization": "Bearer " + cleanKey,
     "User-Agent": USER_AGENT,
-    "Accept": "application/json",
-    "Origin": "https://github.com/InchStudio/ForwardWidgets"
+    "Accept": "application/json"
   };
   
-  console.log("[AI请求] URL: " + apiUrl);
-  
-  var response = await Widget.http.post(
-    apiUrl,
-    {
-      model: model,
-      messages: messages,
-      max_tokens: maxTokens || 500,
-      temperature: temperature || 0.7,
-    },
-    {
-      headers: headers,
-      timeout: 30000,
-    }
-  );
-  
+  // 3. 构建严格符合 OpenAI 规范的 Body
+  var body = {
+    model: cleanModel,
+    messages: messages,
+    temperature: 0.7,
+    presence_penalty: 0,
+    stream: false
+  };
+
+  console.log("[AI请求] 目标: " + apiUrl);
+  console.log("[AI请求] 模型: " + cleanModel);
+
+  // 4. 使用 Forward 框架发起请求
+  var response = await Widget.http.post(apiUrl, body, {
+    headers: headers,
+    timeout: 30000
+  });
+
+  // 处理 400 等非 200 状态码
+  if (!response || response.error) {
+    var errorInfo = response.error ? (response.error.message || JSON.stringify(response.error)) : "未知 400 错误";
+    throw new Error("中转站拒绝请求: " + errorInfo);
+  }
+
   return response;
 }
 
-/**
- * Gemini API 调用 - 官方格式
- */
-async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
-  var baseUrl = apiUrl.replace(/\/$/, '');
-  var fullUrl = baseUrl + '/models/' + model + ':generateContent?key=' + apiKey;
-  
-  var promptText = "请推荐" + count + "部" + userPrompt + "类型的影视作品。只返回剧名，每行一个，不要序号。";
-  
-  var response = await Widget.http.post(
-    fullUrl,
-    {
-      contents: [{ parts: [{ text: promptText }] }]
-    },
-    {
-      headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
-      timeout: 30000,
-    }
-  );
-  
-  if (response && response.candidates && response.candidates[0]) {
-    return response.candidates[0].content.parts[0].text || "";
-  }
-  return "";
-}
-
-/**
- * 通用 AI 调用入口 (核心修复逻辑)
- */
 async function callAI(config) {
   var apiUrl = config.apiUrl.trim();
-  var format = config.format || "openai";
   
-  // --- 关键修复：路径补全 ---
-  if (format === "openai") {
-    if (!apiUrl.includes('/chat/completions')) {
-      apiUrl = apiUrl.replace(/\/$/, '');
-      if (!apiUrl.endsWith('/v1')) apiUrl += '/v1';
-      apiUrl += '/chat/completions';
+  // 路径自动修正：确保包含 v1/chat/completions
+  if (!apiUrl.includes('/chat/completions')) {
+    apiUrl = apiUrl.replace(/\/$/, '');
+    if (!apiUrl.endsWith('/v1')) {
+      apiUrl += '/v1';
     }
+    apiUrl += '/chat/completions';
   }
-  
-  try {
-    if (format === "gemini") {
-      return await callGeminiFormat(apiUrl, config.apiKey, config.model, config.prompt, config.count);
-    } else {
-      var systemPrompt = "你是一个影视推荐助手。请根据用户的需求，推荐" + config.count + "部影视作品。\n要求：只输出剧名，每行一个，严禁任何额外解释。";
-      var userPrompt = "我想看 " + config.prompt + " 类型的作品。";
-      
-      var messages = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ];
-      
-      var response = await callOpenAIFormat(apiUrl, config.apiKey, config.model, messages);
-      
-      // 检查是否触发 403 或其他错误
-      if (!response || response.error) {
-        var errorMsg = response && response.error ? response.error.message : "请求被拒绝 (403/Forbidden)";
-        throw new Error(errorMsg);
-      }
-      
-      return extractContent(response);
-    }
-  } catch (e) {
-    throw new Error("AI接口调用失败: " + e.message);
-  }
+
+  var messages = [
+    { role: "system", content: "你是一个影视专家，只返回剧名列表，每行一个，不要解释。" },
+    { role: "user", content: "请推荐 " + config.count + " 部 " + config.prompt + " 风格的作品。" }
+  ];
+
+  var res = await callOpenAIFormat(apiUrl, config.apiKey, config.model, messages);
+  return extractContent(res);
 }
 
-// ==================== 3. 工具函数 ====================
-
-function extractContent(response) {
-  if (!response) return "";
-  // 某些环境下 response 可能包裹在 data 属性中
-  var data = response.data || response;
-  if (data.choices && data.choices[0]) {
-    var choice = data.choices[0];
-    return choice.message ? choice.message.content : (choice.text || "");
+function extractContent(res) {
+  // 兼容不同的返回包裹层级
+  var data = res.data || res;
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content;
   }
   return "";
 }
+
+// ==================== 3. 业务工具 ====================
 
 function parseNames(content) {
   if (!content) return [];
   return content.split("\n")
-    .map(line => line.replace(/^[\d\.\-\s]+/, '').replace(/[《》]/g, '').trim())
-    .filter(line => line.length > 0 && line.length < 20);
+    .map(line => line.replace(/^[\d\.\-\s、]+/, '').replace(/[《》]/g, '').trim())
+    .filter(line => line.length > 0 && line.length < 25);
 }
 
 async function getTmdbDetail(title, mediaType, apiKey) {
   try {
-    var responseData;
+    var resData;
     if (apiKey) {
       var res = await Widget.http.get("https://api.themoviedb.org/3/search/" + mediaType, {
-        params: { api_key: apiKey, query: title, language: "zh-CN" },
-        headers: { "User-Agent": USER_AGENT }
+        params: { api_key: apiKey, query: title, language: "zh-CN" }
       });
-      responseData = res.data || res;
+      resData = res.data || res;
     } else {
-      responseData = await Widget.tmdb.get("/search/" + mediaType, {
+      resData = await Widget.tmdb.get("/search/" + mediaType, {
         params: { query: title, language: "zh-CN" }
       });
     }
-    return (responseData.results && responseData.results.length > 0) ? responseData.results[0] : null;
+    return (resData.results && resData.results.length > 0) ? resData.results[0] : null;
   } catch (e) { return null; }
 }
 
-// ==================== 4. 列表加载函数 ====================
+// ==================== 4. 主加载函数 ====================
 
 async function loadAIList(params) {
-  var content = await callAI({
-    apiUrl: params.aiApiUrl,
-    apiKey: params.aiApiKey,
-    model: params.aiModel,
-    format: params.aiApiFormat,
-    prompt: params.prompt,
-    count: parseInt(params.recommendCount) || 6
-  });
+  try {
+    var content = await callAI({
+      apiUrl: params.aiApiUrl,
+      apiKey: params.aiApiKey,
+      model: params.aiModel,
+      prompt: params.prompt,
+      count: params.recommendCount || 6
+    });
 
-  var names = parseNames(content);
-  if (names.length === 0) throw new Error("AI 未返回有效推荐");
+    var names = parseNames(content);
+    if (names.length === 0) throw new Error("AI 返回内容解析失败");
 
-  var promises = names.map(async (name) => {
-    let detail = await getTmdbDetail(name, "tv", params.TMDB_API_KEY);
-    if (!detail) detail = await getTmdbDetail(name, "movie", params.TMDB_API_KEY);
+    var items = await Promise.all(names.map(async (name) => {
+      // 优先查电视剧，再查电影
+      let d = await getTmdbDetail(name, "tv", params.TMDB_API_KEY);
+      if (!d) d = await getTmdbDetail(name, "movie", params.TMDB_API_KEY);
+      
+      if (d) {
+        return {
+          id: d.id.toString(),
+          type: "tmdb",
+          title: d.title || d.name,
+          description: d.overview || "AI 推荐作品",
+          posterPath: d.poster_path,
+          rating: d.vote_average,
+          mediaType: d.title ? "movie" : "tv"
+        };
+      }
+      return null;
+    }));
+
+    var validItems = items.filter(i => i !== null);
+    if (validItems.length === 0) throw new Error("未能从 TMDB 匹配到相关影视信息");
     
-    if (detail) {
-      return {
-        id: detail.id.toString(),
-        type: "tmdb",
-        title: detail.title || detail.name,
-        description: detail.overview,
-        posterPath: detail.poster_path,
-        rating: detail.vote_average,
-        mediaType: detail.title ? "movie" : "tv"
-      };
-    }
-    return null;
-  });
-
-  var results = await Promise.all(promises);
-  return results.filter(r => r !== null);
+    return validItems;
+  } catch (e) {
+    console.error("[模块错误] " + e.message);
+    throw e;
+  }
 }
 
-console.log("AI 影视推荐模块 v5.0.0 修复版加载成功");
+console.log("AI 影视推荐 v5.2.0 加载成功");
