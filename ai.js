@@ -52,7 +52,18 @@ var WidgetMetadata = {
   detailCacheDuration: 3600,
 
   globalParams: [
-    { name: "aiApiUrl", title: "AI API 地址", type: "input", required: true },
+    {
+          title: "OpenAI 官方",
+          value: "https://api.openai.com",
+        },
+        {
+          title: "Gemini 官方",
+          value: "https://generativelanguage.googleapis.com",
+        },
+        {
+          title: "自定义",
+          value: "",
+        },
     {
       name: "aiApiFormat",
       title: "API 格式",
@@ -85,8 +96,24 @@ var WidgetMetadata = {
       title: "AI推荐",
       functionName: "loadAIList",
       params: [
-        { name: "prompt", title: "想看什么", type: "input", required: true }
-      ]
+        {
+          name: "prompt",
+          title: "想看什么",
+          type: "input",
+          required: true,
+          value: "",
+          placeholders: [
+            { title: "轻松喜剧", value: "轻松喜剧" },
+            { title: "科幻大片", value: "科幻大片" },
+            { title: "悬疑推理", value: "悬疑推理" },
+            { title: "经典港剧", value: "经典港剧" },
+            { title: "高分动画", value: "高分动画" },
+            { title: "犯罪剧情", value: "犯罪剧情" },
+            { title: "爱情片", value: "爱情片" },
+            { title: "战争片", value: "战争片" },
+          ],
+        },
+      ],
     },
     {
       id: "similarRecommend",
