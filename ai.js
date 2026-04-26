@@ -47,7 +47,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "JSCore兼容 + 单次AI调用 + TMDB批量查询",
   author: "crush7s",
-  version: "5.2.4",
+  version: "5.2.5",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -99,11 +99,29 @@ var WidgetMetadata = {
       functionName: "loadAIList",
       params: [
         {
-          name: "prompt",
-          title: "想看什么",
+          name: "recommendType",
+          title: "推荐类型",
+          type: "enumeration",
+          enumOptions: [
+            { title: "自定义输入", value: "" },
+            { title: "悬疑烧脑", value: "悬疑烧脑、反转不断、高智商对决" },
+            { title: "科幻巨制", value: "科幻巨制、视觉震撼、未来世界" },
+            { title: "温情治愈", value: "温情治愈、感人至深、家庭与成长" },
+            { title: "爆笑喜剧", value: "爆笑喜剧、轻松幽默、从头笑到尾" },
+            { title: "动作爽片", value: "动作爽片、全程高能、打斗精彩" },
+            { title: "恐怖惊悚", value: "恐怖惊悚、细思极恐、胆小勿入" },
+            { title: "经典必看", value: "影史经典、口碑神作、必看榜单" },
+            { title: "动画佳作", value: "动画佳作、画风唯美、老少皆宜" },
+            { title: "冷门神作", value: "冷门神作、小众佳片、被忽视的宝藏" }
+          ],
+          defaultValue: ""
+        },
+        {
+          name: "customPrompt",
+          title: "想看什么（自定义）",
           type: "input",
-          required: true,
-          placeholder: "输入关键词或选择类型：悬疑烧脑 / 科幻巨制 / 温情治愈 / 爆笑喜剧 / 动作爽片 / 恐怖惊悚 / 经典必看 / 动画佳作 / 冷门神作"
+          required: false,
+          placeholder: "选择\"自定义输入\"时可自由填写，如：烧脑悬疑、高分韩剧、近期热门..."
         }
       ]
     },
@@ -324,15 +342,25 @@ async function searchTMDB(title, type, key) {
 // ==================== 主逻辑 ====================
 async function loadAIList(params) {
 
-  var promptValue = params.prompt;
+  // 获取prompt：优先使用自定义输入，如果为空则使用推荐类型
+  var promptValue = "";
+  if (params.recommendType === "") {
+    // 自定义输入模式，使用customPrompt
+    promptValue = params.customPrompt || "";
+  } else {
+    // 选择了预设类型
+    promptValue = params.recommendType;
+  }
+
+  // 如果最终prompt为空，使用默认值
   if (!promptValue || promptValue.trim() === "") {
     promptValue = "热门高分";
   }
 
-  // 处理推荐数量：优先使用模块参数中的自定义数量，否则使用全局默认
-  var targetCount = parseInt(params.recommendCount) || parseInt(params.globalRecommendCount);
+  // 处理推荐数量
+  var targetCount = parseInt(params.recommendCount) || 9;
   if (!targetCount || targetCount <= 0) {
-    targetCount = 9; // 最终回退默认值
+    targetCount = 9;
   }
 
   // 获取实际的API地址
@@ -406,8 +434,9 @@ async function loadAIList(params) {
 
 async function loadSimilarList(params) {
   if (!params) params = {};
-  params.prompt = "类似《" + params.referenceTitle + "》的作品";
+  params.recommendType = "类似《" + params.referenceTitle + "》的作品";
+  params.customPrompt = "";
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.2.4（JSCore兼容）已加载");
+console.log("✅ AI影视推荐模块 v5.2.5（JSCore兼容）已加载");
