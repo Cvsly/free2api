@@ -409,4 +409,3 @@ async function loadSimilarList(params) {
 }
 
 console.log("✅ AI影视推荐模块 v5.2.1（JSCore兼容）已加载");
-推荐数量一栏改为自由填写和内置默认数量，在模块列表下ai推荐中想看什么一栏中自由填写的基础上加上推荐选项，在原有的api接口地址上改为内置的openai和Gemini以及自定义地址,要求不改变原有功能，只修改ui
