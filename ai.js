@@ -105,7 +105,6 @@ var WidgetMetadata = {
 
 // ==================== OpenAI / 中转 ====================
 async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
-
   var headers = {
     "Content-Type": "application/json"
   };
@@ -125,12 +124,10 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
   for (var i = 0; i < strategies.length; i++) {
     try {
       var body = strategies[i]();
-
       return await Widget.http.post(apiUrl, body, {
         headers: headers,
         timeout: 60000
       });
-
     } catch (e) {
       if ((e.message || "").indexOf("400") !== -1) continue;
       throw e;
@@ -142,7 +139,6 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
 
 // ==================== Gemini ====================
 async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
-
   apiUrl = apiUrl.replace(/\/+$/, '');
 
   if (apiUrl.indexOf("/v1beta") === -1) {
@@ -218,28 +214,27 @@ function normalizeApiUrl(apiUrl, format) {
 // ==================== JSCore 兼容的 sleep ====================
 function sleep(ms) {
   // JSCore 环境中 setTimeout 不可用，使用同步循环模拟
-  // 实际上对于网络请求之间的延迟，我们使用 Date.now() 自旋
   var start = Date.now();
   while (Date.now() - start < ms) {
     // 自旋等待，不阻塞其他操作
   }
 }
+
 // ==================== AI入口（只调用一次） ====================
 async function callAI(config) {
-
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
 
   console.log("[AI] 单次调用，请求推荐 " + config.count + " 部作品");
   console.log("[AI] 使用URL: " + finalUrl);
 
   var messages = [
-    { 
-      role: "system", 
-      content: "你是影视推荐助手。严格按照用户要求的数量推荐。每行返回一个影视名称，不要编号，不要解释，不要任何其他文字。格式示例：\n肖申克的救赎\n阿甘正传\n盗梦空间" 
+    {
+      role: "system",
+      content: "你是影视推荐助手。严格按照用户要求的数量推荐。每行返回一个影视名称，不要编号，不要解释，不要任何其他文字。格式示例：\n肖申克的救赎\n阿甘正传\n盗梦空间"
     },
-    { 
-      role: "user", 
-      content: "推荐" + config.count + "部" + config.prompt + "的影视作品" 
+    {
+      role: "user",
+      content: "推荐" + config.count + "部" + config.prompt + "的影视作品"
     }
   ];
 
@@ -266,16 +261,13 @@ async function callAI(config) {
 // ==================== 解析名称 ====================
 function parseNames(text) {
   if (!text) return [];
-  
+
   return text
     .split("\n")
     .map(function(t) { return t.trim(); })
-    .filter(function(t) { 
-      // 过滤掉空行、编号行、提示文字
+    .filter(function(t) {
       if (t.length < 2) return false;
-      // 去除常见的编号格式
       var cleaned = t.replace(/^\d+[\.\、\)）]\s*/, '');
-      // 过滤掉明显的非片名行
       if (cleaned.indexOf("推荐") === 0) return false;
       if (cleaned.indexOf("以下") === 0) return false;
       if (cleaned.indexOf("影视") !== -1 && cleaned.length < 10) return false;
@@ -291,7 +283,7 @@ function parseNames(text) {
 async function searchTMDB(title, type, key) {
   try {
     var res;
-    
+
     if (key) {
       res = await Widget.http.get(
         "https://api.themoviedb.org/3/search/" + type,
@@ -303,7 +295,6 @@ async function searchTMDB(title, type, key) {
           }
         }
       );
-      // 根据环境不同，可能需要 .data
       if (res.data) {
         res = res.data;
       }
@@ -325,9 +316,8 @@ async function searchTMDB(title, type, key) {
         mediaType: type
       };
     }
-    
+
     return null;
-    
   } catch (e) {
     console.log("[TMDB] 搜索失败: " + title + " (" + type + ")");
     return null;
@@ -336,7 +326,6 @@ async function searchTMDB(title, type, key) {
 
 // ==================== 主逻辑 ====================
 async function loadAIList(params) {
-
   var config = {
     apiUrl: params.aiApiUrl,
     apiKey: params.aiApiKey,
@@ -347,15 +336,15 @@ async function loadAIList(params) {
   };
 
   console.log("[AI推荐] 开始获取推荐，目标数量: " + config.count);
-  
+
   // 1. 调用AI一次，获取所有推荐名称
   var text = await callAI(config);
   console.log("[AI返回] 原始响应: " + text);
-  
+
   // 2. 解析名称列表
   var names = parseNames(text);
   console.log("[解析] 获取到 " + names.length + " 个名称: " + names.join(", "));
-  
+
   // 3. 如果没有解析到任何名称
   if (names.length === 0) {
     return [{
@@ -365,24 +354,22 @@ async function loadAIList(params) {
       description: "AI返回内容: " + (text || "").substring(0, 100)
     }];
   }
-  
+
   // 4. 查询TMDB（无延迟，JSCore兼容）
   var tmdbKey = params.TMDB_API_KEY;
   var results = [];
-  
-  // 逐个查询，先查电影，没找到再查电视剧
+
   for (var i = 0; i < names.length; i++) {
     var name = names[i];
-    
+
     // 先查电影
     var result = await searchTMDB(name, "movie", tmdbKey);
-    
+
     // 没找到电影，尝试电视剧
     if (!result) {
       result = await searchTMDB(name, "tv", tmdbKey);
     }
-    
-    // 如果找到了就添加，否则创建基础条目
+
     if (result) {
       results.push(result);
     } else {
@@ -393,12 +380,11 @@ async function loadAIList(params) {
         description: "AI推荐，暂无详细信息"
       });
     }
-    
+
     console.log("[进度] " + (i + 1) + "/" + names.length + " - " + name);
   }
-  
+
   console.log("[完成] 最终返回 " + results.length + " 条结果");
-  
   return results;
 }
 
