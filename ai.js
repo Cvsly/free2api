@@ -1,20 +1,19 @@
 /**
  * AI 影视推荐模块
- * 全兼容第三方OpenAI协议：NewApi/硅基流动/中转代理/私有化部署/反向代理
- * 适配 ForwardWidgets 官方规范 | 修复模块加载失败、无数据问题
+ * 修复400错误｜全兼容第三方OpenAI协议｜Forward官方规范
  */
 
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 const OPENAI_CHAT_ENDPOINT = "chat/completions";
 
-// ==================== 1. Metadata 定义【官方规范修复】 ====================
+// ==================== 1. Metadata 定义 ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
   description: "全兼容OpenAI协议｜智能影视推荐，支持中转/NewApi/硅基流动/私有化AI接口",
   author: "crush7s",
   site: "",
-  version: "5.0.1",
+  version: "5.0.2",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
   
@@ -24,13 +23,13 @@ var WidgetMetadata = {
       title: "AI API 地址",
       type: "input",
       required: true,
-      defaultValue: "https://api.openai.com",
-      description: "支持填写域名/根地址/完整接口，自动补全OpenAI标准路径",
+      defaultValue: "https://api.openai.com/v1",
+      description: "支持：域名/带v1地址/完整接口，自动适配",
       placeholders: [
-        { title: "OpenAI 官方", value: "https://api.openai.com" },
+        { title: "OpenAI 官方", value: "https://api.openai.com/v1" },
         { title: "Gemini 官方", value: "https://generativelanguage.googleapis.com/v1beta" },
-        { title: "硅基流动", value: "https://api.siliconflow.cn" },
-        { title: "NewApi/中转", value: "https://your-proxy-domain.com" },
+        { title: "硅基流动", value: "https://api.siliconflow.cn/v1" },
+        { title: "NewApi/中转", value: "https://your-proxy-domain.com/v1" },
         { title: "自定义", value: "" }
       ]
     },
@@ -58,7 +57,7 @@ var WidgetMetadata = {
       type: "input",
       required: true,
       defaultValue: "gpt-3.5-turbo",
-      description: "兼容全量OpenAI协议模型，按服务商要求填写",
+      description: "按服务商要求填写完整模型名，如硅基：Qwen/Qwen2.5-7B-Instruct",
       placeholders: [
         { title: "OpenAI", value: "gpt-3.5-turbo" },
         { title: "Gemini", value: "gemini-2.5-flash" },
@@ -148,14 +147,33 @@ var WidgetMetadata = {
   ]
 };
 
-// ==================== 2. 通用工具函数 【移除ES6语法】 ====================
+// ==================== 2. 通用工具函数 【修复URL拼接bug】 ====================
+/**
+ * 修复前的问题：用户输入带/v1的地址时，会重复拼接成/v1/v1/chat/completions
+ * 现在的逻辑：智能识别用户输入的URL，避免路径重复
+ */
 function normalizeOpenAiUrl(inputUrl) {
   if (!inputUrl) return "";
+  // 清除首尾空格、末尾斜杠
   var url = inputUrl.trim().replace(/\/+$/, "");
-  if (url.indexOf(OPENAI_CHAT_ENDPOINT) > -1) {
+
+  // 情况1：用户已经输入了完整的chat/completions路径，直接使用
+  if (url.indexOf(OPENAI_CHAT_ENDPOINT) !== -1) {
+    console.log("[URL标准化] 检测到完整路径，直接使用: " + url);
     return url;
   }
-  return url + "/v1/" + OPENAI_CHAT_ENDPOINT;
+
+  // 情况2：用户输入的是带/v1的地址（如https://api.siliconflow.cn/v1），拼接chat/completions
+  if (url.indexOf("/v1") !== -1) {
+    url = url + "/" + OPENAI_CHAT_ENDPOINT;
+    console.log("[URL标准化] 带v1地址，拼接后: " + url);
+    return url;
+  }
+
+  // 情况3：用户输入的是根域名（如https://api.openai.com），拼接/v1/chat/completions
+  url = url + "/v1/" + OPENAI_CHAT_ENDPOINT;
+  console.log("[URL标准化] 根域名，拼接后: " + url);
+  return url;
 }
 
 function autoDetectApiFormat(apiUrl) {
@@ -166,13 +184,14 @@ function autoDetectApiFormat(apiUrl) {
   return "openai";
 }
 
-// ==================== 3. AI API 适配器 【全兼容+语法降级】 ====================
+// ==================== 3. AI API 适配器 【修复参数兼容】 ====================
 async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, maxTokens) {
   var fullRequestUrl = normalizeOpenAiUrl(apiUrl);
   var headers = {
     "Content-Type": "application/json"
   };
 
+  // 兼容多种鉴权方式：Bearer/纯Key
   if (apiKey && apiKey.trim()) {
     var key = apiKey.trim();
     if (/^Bearer\s+/i.test(key)) {
@@ -182,31 +201,47 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages, temperature, ma
     }
   }
 
+  // 基础请求体（兼容绝大多数第三方接口）
   var requestBody = {
     model: model,
     messages: messages,
     temperature: temperature || 0.4,
-    max_tokens: maxTokens || 600,
-    stream: false
+    max_tokens: maxTokens || 600
   };
 
+  // 针对部分特殊模型的参数适配
   if (model.indexOf("gpt-4o") !== -1 || model.indexOf("claude") !== -1) {
+    // 部分新版模型需要max_completion_tokens
     requestBody.max_completion_tokens = requestBody.max_tokens;
     delete requestBody.max_tokens;
   }
 
+  // 移除stream参数（部分第三方接口不支持，或默认false）
+  // 只在需要时手动添加，避免兼容性问题
+
   console.log("[OpenAI] 最终请求地址：", fullRequestUrl);
+  console.log("[OpenAI] 请求体预览：", JSON.stringify(requestBody).substring(0, 200));
 
-  var response = await Widget.http.post(
-    fullRequestUrl,
-    requestBody,
-    {
-      headers: headers,
-      timeout: 80000
+  try {
+    var response = await Widget.http.post(
+      fullRequestUrl,
+      requestBody,
+      {
+        headers: headers,
+        timeout: 80000
+      }
+    );
+    console.log("[OpenAI] 响应状态：成功");
+    return response;
+  } catch (error) {
+    // 打印更详细的错误信息，方便排查
+    console.error("[OpenAI] 请求失败，状态码：", error.status || "未知");
+    console.error("[OpenAI] 错误详情：", error.message || "无详情");
+    if (error.response) {
+      console.error("[OpenAI] 响应体：", JSON.stringify(error.response.data || error.response));
     }
-  );
-
-  return response;
+    throw error;
+  }
 }
 
 async function callGeminiFormat(apiUrl, apiKey, model, userPrompt, count) {
@@ -394,7 +429,7 @@ async function getTmdbDetail(title, mediaType, apiKey) {
   }
 }
 
-// ==================== 5. 列表加载函数【强制官方返回格式】 ====================
+// ==================== 5. 列表加载函数 ====================
 async function loadAIList(params) {
   params = params || {};
   try {
@@ -441,7 +476,6 @@ async function loadAIList(params) {
       if(results[m]) validResults.push(results[m]);
     }
 
-    // 无TMDB数据时，返回纯文本占位（保证有数据不报错）
     if (validResults.length === 0) {
       for (var idx = 0; idx < names.length; idx++) {
         validResults.push({
@@ -456,7 +490,6 @@ async function loadAIList(params) {
       }
     }
 
-    // 严格遵循 Forward 影视模块标准返回
     return {
       list: validResults,
       count: validResults.length
@@ -535,4 +568,4 @@ async function loadSimilarList(params) {
   }
 }
 
-console.log("AI影视推荐模块v5.0.1｜Forward官方规范适配 加载成功");
+console.log("AI影视推荐模块v5.0.2｜修复400错误 加载成功");
