@@ -1,11 +1,10 @@
 /**
- * AI 影视推荐模块（最终修复版 v5.3.8）
+ * AI 影视推荐模块（最终优化版）
  * 
- * 修复点：
- * 1. id 格式改为 "movie.id" 或 "tv.id"，防止框架自动覆盖自定义字段
- * 2. 同时设置 subTitle 和 genreTitle 为 “年份·类型”，兼容不同组件
- * 3. description 只放剧情简介，避免干扰列表显示
+ * 修复：副标题只显示一次年份，格式为 "年份·类型"
+ * 优化：类型缺失时使用媒体类型备选
  */
+
 const USER_AGENT = "Mozilla/5.0";
 
 // ==================== Metadata ====================
@@ -14,7 +13,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.8",
+  version: "5.3.9",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -197,7 +196,7 @@ function getGenreNames(ids) {
   return arr.join("/");
 }
 
-// ==================== 🔥 最终修复版 TMDB 搜索 ====================
+// ==================== 🔥 优化版 TMDB 搜索 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -238,12 +237,18 @@ async function searchTMDB(title, type, key) {
     // 主标题
     var titleName = item.title || item.name || title;
 
-    // 年份·类型
+    // 🔥 年份：只取一次
     var rawDate = item.release_date || item.first_air_date || "";
-    var year = rawDate ? rawDate.substring(0, 4) : "未知";
+    var year = rawDate ? rawDate.substring(0, 4) : "";
+
+    // 🔥 类型：优先使用 genre_ids，缺失时使用媒体类型
     var genres = getGenreNames(item.genre_ids);
-    if (!genres) genres = (type === "movie" ? "电影" : "剧集");
-    var yearGenre = year + "·" + genres;
+    if (!genres) {
+      genres = (type === "movie" ? "电影" : "剧集");
+    }
+
+    // 🔥 副标题格式：年份·类型（年份只显示一次）
+    var yearGenre = year ? year + "·" + genres : genres;
 
     // 简介
     var overview = item.overview || "暂无简介";
@@ -254,16 +259,15 @@ async function searchTMDB(title, type, key) {
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
 
-    // 🔥 关键修复：id 格式、subTitle + genreTitle 双保险
     return {
-      id: type + "." + item.id,           // 例：movie.157336 或 tv.1396
-      tmdbId: parseInt(item.id),          // 原始数字ID备用
+      id: type + "." + item.id,
+      tmdbId: parseInt(item.id),
       type: "tmdb",
-      mediaType: type,                    // movie 或 tv
-      title: titleName,                   // 列表主标题
-      subTitle: yearGenre,                // 副标题字段1
-      genreTitle: yearGenre,              // 副标题字段2（兼容部分布局）
-      description: overview,              // 详情描述
+      mediaType: type,
+      title: titleName,
+      subTitle: yearGenre,       // 副标题：年份·类型
+      genreTitle: genres,        // 纯类型文本
+      description: overview,
       posterPath: posterPath,
       releaseDate: rawDate,
       rating: item.vote_average || 0
@@ -300,14 +304,13 @@ async function loadAIList(params) {
       if (result) {
         results.push(result);
       } else {
-        // 未匹配到 TMDB 数据时，也保持格式统一
         results.push({
           id: "ai_" + i,
           type: "tmdb",
           mediaType: "movie",
           title: name,
-          subTitle: "AI推荐·未知类型",
-          genreTitle: "AI推荐·未知类型",
+          subTitle: "AI推荐",
+          genreTitle: "AI推荐",
           description: "暂无详细信息",
           posterPath: null,
           rating: 0
@@ -334,4 +337,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.8 已加载 - 修复 TMDB 数据覆盖 & 副标题显示");
+console.log("✅ AI影视推荐模块 v5.3.9 已加载 - 副标题优化完成");
