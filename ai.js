@@ -139,7 +139,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
           prompt +
           "相关影视作品。" +
           "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-          "只返回名称，每行一个，不要编号，不要解释."
+          "只返回名称，不要编号，不要解释."
       }]
     }],
     generationConfig: {
@@ -215,7 +215,7 @@ async function callAI(config) {
     {
       role: "system",
       content:
-        "你是影视推荐助手。只返回影视名称，每行一个。"
+        "你是影视推荐助手。只返回影视名称。"
     },
     {
       role: "user",
