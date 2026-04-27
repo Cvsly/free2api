@@ -11,7 +11,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方中转接口",
   author: "crush7s",
-  version: "5.2.3",
+  version: "5.2.4",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
