@@ -3,7 +3,7 @@
  * 保持原有功能不变：
  * 1. 优化 TMDB 返回数据（显示上映时间 / 首播时间 + 类型）
  * 2. 优化 AI 提示词（支持演员名返回作品）
- * 3. 🔥 修复标题和描述显示问题 - 参考 AI 搜索模块格式
+ * 3. 🔥 最终修复：使用 subTitle 字段确保列表正确显示副标题
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -14,7 +14,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.3",
+  version: "5.3.5",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -140,7 +140,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
           prompt +
           "相关影视作品。" +
           "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-          "只返回名称，不要编号，不要解释."
+          "只返回名称，每行一个，不要编号，不要解释."
       }]
     }],
     generationConfig: {
@@ -216,7 +216,7 @@ async function callAI(config) {
     {
       role: "system",
       content:
-        "你是影视推荐助手。只返回影视名称。"
+        "你是影视推荐助手。只返回影视名称，每行一个。"
     },
     {
       role: "user",
@@ -275,7 +275,7 @@ function getGenreNames(ids) {
   return arr.join("/");
 }
 
-// ==================== 🔥 TMDB搜索 ====================
+// ==================== 🔥 核心修复：TMDB搜索（添加 subTitle 字段）====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -314,30 +314,25 @@ async function searchTMDB(title, type, key) {
 
     var item = res.results[0];
 
-    // ===== 主标题：影视名称 =====
+    // ===== 主标题 =====
     var titleName = item.title || item.name || title;
-    
-    // ===== 🔥 副标题格式：年份·类型 =====
+
+    // ===== 副标题：年份·类型 =====
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "未知";
     
-    // 获取类型
     var genres = getGenreNames(item.genre_ids);
-    if (!genres) {
-      // 如果没有类型，根据 media_type 给个默认值
-      if (type === "movie") {
-        genres = "电影";
-      } else if (type === "tv") {
-        genres = "剧集";
-      } else {
-        genres = "影视";
-      }
-    }
-    
-    // 🔥 关键：description = "年份·类型" 
-    var description = year + "·" + genres;
+    if (!genres) genres = (type === "movie" ? "电影" : "剧集");
 
-    // 海报路径
+    var subTitle = year + "·" + genres;  // 例：2026·惊悚/动作
+
+    // ===== 简介 =====
+    var overview = item.overview || "暂无简介";
+    if (overview.length > 200) {
+      overview = overview.substring(0, 200) + "...";
+    }
+
+    // ===== 海报 =====
     var posterPath = item.poster_path 
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
@@ -345,8 +340,9 @@ async function searchTMDB(title, type, key) {
     return {
       id: item.id,
       type: "tmdb",
-      title: titleName,           // 主标题：巅峰猎杀
-      description: description,   // 🔥 副标题：2026·惊悚/动作
+      title: titleName,          // 主标题
+      subTitle: subTitle,        // 🔥 列表副标题：年份·类型
+      description: overview,     // 详情描述：剧情简介
       posterPath: posterPath,
       rating: item.vote_average || 0,
       mediaType: item.media_type || type,
@@ -388,12 +384,12 @@ async function loadAIList(params) {
       if (result) {
         results.push(result);
       } else {
-        // 🔥 没有找到TMDB结果时，保持格式一致
         results.push({
           id: "ai_" + i,
           type: "tmdb",
           title: name,
-          description: "AI推荐·未知类型",
+          subTitle: "AI推荐·未知类型",
+          description: "暂无详细信息",
           posterPath: null,
           rating: 0,
           year: "",
@@ -408,7 +404,8 @@ async function loadAIList(params) {
       id: "err",
       type: "tmdb",
       title: "请求出错",
-      description: "错误·" + e.message
+      subTitle: "错误",
+      description: e.message
     }];
   }
 }
@@ -419,4 +416,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.3 已加载 - 参考AI搜索格式优化");
+console.log("✅ AI影视推荐模块 v5.3.5 已加载 - 使用 subTitle 字段正确显示副标题");
