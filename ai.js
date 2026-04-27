@@ -1,8 +1,10 @@
 /**
- * AI 影视推荐模块（最终修复版）
- * - 使用 subTitle 字段显示列表副标题（年份·类型）
- * - 使用 description 字段存放剧情简介（详情页显示）
- * - 完全兼容 ForwardWidgets 框架
+ * AI 影视推荐模块（最终修复版 v5.3.8）
+ * 
+ * 修复点：
+ * 1. id 格式改为 "movie.id" 或 "tv.id"，防止框架自动覆盖自定义字段
+ * 2. 同时设置 subTitle 和 genreTitle 为 “年份·类型”，兼容不同组件
+ * 3. description 只放剧情简介，避免干扰列表显示
  */
 const USER_AGENT = "Mozilla/5.0";
 
@@ -12,7 +14,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.7",
+  version: "5.3.8",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -95,15 +97,10 @@ var WidgetMetadata = {
 async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
   var headers = { "Content-Type": "application/json" };
   if (apiKey) {
-    headers["Authorization"] = apiKey.startsWith("Bearer ")
-      ? apiKey
-      : "Bearer " + apiKey;
+    headers["Authorization"] = apiKey.startsWith("Bearer ") ? apiKey : "Bearer " + apiKey;
   }
   var body = { model: model, messages: messages };
-  return await Widget.http.post(apiUrl, body, {
-    headers: headers,
-    timeout: 60000
-  });
+  return await Widget.http.post(apiUrl, body, { headers: headers, timeout: 60000 });
 }
 
 // ==================== Gemini ====================
@@ -123,9 +120,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
     }],
     generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
   };
-  var res = await Widget.http.post(url, body, {
-    headers: { "Content-Type": "application/json" }
-  });
+  var res = await Widget.http.post(url, body, { headers: { "Content-Type": "application/json" } });
   return extractContent(res);
 }
 
@@ -202,7 +197,7 @@ function getGenreNames(ids) {
   return arr.join("/");
 }
 
-// ==================== 🔥 最终修复：TMDB搜索（正确使用 subTitle 和 description）====================
+// ==================== 🔥 最终修复版 TMDB 搜索 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -231,7 +226,7 @@ async function searchTMDB(title, type, key) {
 
     if (!res || !res.results || res.results.length === 0) return null;
 
-    // 智能排序（综合评分和人气）
+    // 综合评分和人气排序
     res.results.sort((a, b) => {
       var scoreA = (a.vote_average || 0) * Math.log((a.vote_count || 1) + 1);
       var scoreB = (b.vote_average || 0) * Math.log((b.vote_count || 1) + 1);
@@ -240,36 +235,38 @@ async function searchTMDB(title, type, key) {
 
     var item = res.results[0];
 
-    // 主标题：纯影视名称
+    // 主标题
     var titleName = item.title || item.name || title;
 
-    // 列表副标题：年份·类型
+    // 年份·类型
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "未知";
     var genres = getGenreNames(item.genre_ids);
     if (!genres) genres = (type === "movie" ? "电影" : "剧集");
-    var subTitle = year + "·" + genres;  // 如 "2026·惊悚/动作"
+    var yearGenre = year + "·" + genres;
 
-    // 详情描述：剧情简介（限制长度）
+    // 简介
     var overview = item.overview || "暂无简介";
-    if (overview.length > 200) {
-      overview = overview.substring(0, 200) + "...";
-    }
+    if (overview.length > 200) overview = overview.substring(0, 200) + "...";
 
     // 海报
     var posterPath = item.poster_path 
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
 
+    // 🔥 关键修复：id 格式、subTitle + genreTitle 双保险
     return {
-      id: item.id,
+      id: type + "." + item.id,           // 例：movie.157336 或 tv.1396
+      tmdbId: parseInt(item.id),          // 原始数字ID备用
       type: "tmdb",
-      title: titleName,          // 主标题
-      subTitle: subTitle,        // 🔥 列表副标题（框架实际使用的字段）
-      description: overview,     // 详情描述（进入详情页显示）
+      mediaType: type,                    // movie 或 tv
+      title: titleName,                   // 列表主标题
+      subTitle: yearGenre,                // 副标题字段1
+      genreTitle: yearGenre,              // 副标题字段2（兼容部分布局）
+      description: overview,              // 详情描述
       posterPath: posterPath,
-      rating: item.vote_average || 0,
-      mediaType: item.media_type || type
+      releaseDate: rawDate,
+      rating: item.vote_average || 0
     };
   } catch (e) {
     console.error("TMDB搜索出错:", e.message);
@@ -303,15 +300,17 @@ async function loadAIList(params) {
       if (result) {
         results.push(result);
       } else {
+        // 未匹配到 TMDB 数据时，也保持格式统一
         results.push({
           id: "ai_" + i,
           type: "tmdb",
+          mediaType: "movie",
           title: name,
           subTitle: "AI推荐·未知类型",
+          genreTitle: "AI推荐·未知类型",
           description: "暂无详细信息",
           posterPath: null,
-          rating: 0,
-          mediaType: "movie"
+          rating: 0
         });
       }
     }
@@ -323,6 +322,7 @@ async function loadAIList(params) {
       type: "tmdb",
       title: "请求出错",
       subTitle: "错误",
+      genreTitle: "错误",
       description: e.message
     }];
   }
@@ -334,4 +334,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.7 已加载 - list副标题使用 subTitle 字段");
+console.log("✅ AI影视推荐模块 v5.3.8 已加载 - 修复 TMDB 数据覆盖 & 副标题显示");
