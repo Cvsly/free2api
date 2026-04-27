@@ -1,6 +1,6 @@
 /**
  * AI 影视推荐模块（JSCore 修复增强版）
- * UI展示优化版（重点：标题/副标题结构清晰）
+ * UI优化：标题/副标题结构规范化
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -11,7 +11,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.2.3",
+  version: "5.2.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -70,7 +70,7 @@ function getGenreNames(ids) {
   return arr.join(" / ");
 }
 
-// ==================== TMDB（UI结构优化核心）====================
+// ==================== TMDB（核心优化）===================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -98,31 +98,38 @@ async function searchTMDB(title, type, key) {
 
     if (!res || !res.results || res.results.length === 0) return null;
 
-    // ⭐ 优先高评分
-    res.results.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    // ⭐ 优化排序：评分 + 热度
+    res.results = res.results
+      .filter(i => i && (i.poster_path || i.overview))
+      .sort((a, b) => {
+        return ((b.vote_average || 0) + (b.popularity || 0) * 0.1)
+             - ((a.vote_average || 0) + (a.popularity || 0) * 0.1);
+      });
 
     var item = res.results[0];
 
     var rawDate = item.release_date || item.first_air_date || "";
-    var year = rawDate ? rawDate.substring(0, 4) : "未知年份";
+    var year = rawDate && rawDate.length >= 4
+      ? rawDate.substring(0, 4)
+      : "未知年份";
 
     var genre = getGenreNames(item.genre_ids);
-    var overview = item.overview || "暂无简介";
     var titleName = item.title || item.name || title;
+    var overview = item.overview || "暂无简介";
 
     return {
       id: item.id,
       type: "tmdb",
 
-      // ==================== UI优化重点 ====================
+      // ==================== UI结构优化 ====================
 
-      // 🎯 主标题：只显示名称（干净）
+      // 主标题（干净）
       title: titleName,
 
-      // 🎯 副标题：年份 + 类型（核心优化点）
+      // 副标题（年份 + 类型）
       subtitle: "📅 " + year + "  ·  🎬 " + genre,
 
-      // 🎯 描述：只放简介（清晰）
+      // 正文（简介）
       description: overview,
 
       posterPath: item.poster_path,
@@ -130,16 +137,58 @@ async function searchTMDB(title, type, key) {
 
       mediaType: item.media_type || type,
 
-      // 结构化备用字段
+      // 扩展字段
       year: year,
-      genreText: genre
+      genreText: genre,
+      popularity: item.popularity || 0
     };
+
   } catch (e) {
     return null;
   }
 }
 
-// ==================== AI入口（不变）===================
+// ==================== 名称解析 ====================
+function parseNames(text) {
+  if (!text) return [];
+
+  return text
+    .split("\n")
+    .map(t => t.trim())
+    .map(t => t.replace(/^\d+[\.\、\)）\s\-]+/, ""))
+    .filter(t => t.length > 0)
+    .slice(0, 15);
+}
+
+// ==================== AI入口（保持不变）===================
+async function callAI(config) {
+  var finalUrl = config.apiUrl.replace(/\/+$/, "");
+
+  var messages = [
+    {
+      role: "system",
+      content: "你是影视推荐助手，只返回影视名称，每行一个"
+    },
+    {
+      role: "user",
+      content:
+        "推荐" +
+        config.count +
+        "部与“" +
+        config.prompt +
+        "”相关的影视作品"
+    }
+  ];
+
+  return extractContent(
+    await Widget.http.post(finalUrl, {
+      model: config.model,
+      messages: messages
+    })
+  );
+}
+
+// ==================== 主入口 ====================
 async function loadAIList(params) {
   var text = await callAI({
     apiUrl: params.aiApiUrl,
@@ -151,7 +200,6 @@ async function loadAIList(params) {
   });
 
   var names = parseNames(text);
-
   var results = [];
 
   for (var i = 0; i < names.length; i++) {
@@ -177,16 +225,10 @@ async function loadAIList(params) {
   return results;
 }
 
-// ==================== 名称解析（不变）===================
-function parseNames(text) {
-  if (!text) return [];
-
-  return text
-    .split("\n")
-    .map(t => t.trim())
-    .map(t => t.replace(/^\d+[\.\、\)）\s\-]+/, ""))
-    .filter(t => t.length > 0)
-    .slice(0, 15);
+// ==================== 相似推荐 ====================
+async function loadSimilarList(params) {
+  params.prompt = "类似《" + (params.referenceTitle || "") + "》的作品";
+  return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐 UI优化版已加载");
+console.log("✅ AI影视推荐模块 v5.2.3 UI优化完整版已加载");
