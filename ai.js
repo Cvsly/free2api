@@ -1,8 +1,9 @@
 /**
- * AI 影视推荐模块（最终优化版）
- * 
- * 修复：副标题只显示一次年份，格式为 "年份·类型"
- * 优化：类型缺失时使用媒体类型备选
+ * AI 影视推荐模块
+ * 修复：兼容更多第三方接口
+ * 优化：AI提示词调整，新增演员作品推荐
+ * 优化：API接口路径自动补齐
+ * 优化：TMDB标题返回显示详情
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -13,7 +14,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.9",
+  version: "5.2.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -114,7 +115,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
       parts: [{
         text: "你是一个影视助手。请推荐" + count + "部" + prompt + "相关影视作品。" +
               "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-              "只返回名称，每行一个，不要编号，不要解释."
+              "只返回名称，不要编号，不要解释."
       }]
     }],
     generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
@@ -157,7 +158,7 @@ async function callAI(config) {
   }
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
   var messages = [
-    { role: "system", content: "你是影视推荐助手。只返回影视名称，每行一个。" },
+    { role: "system", content: "你是影视推荐助手。只返回影视名称。" },
     { role: "user", content: "推荐" + config.count + "部与" + config.prompt + "相关的影视作品" }
   ];
   var res = await callOpenAIFormat(finalUrl, config.apiKey, config.model, messages);
