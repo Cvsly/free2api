@@ -3,6 +3,7 @@
  * 修复：兼容更多第三方接口
  * 优化：AI提示词调整
  * 优化：API接口路径自动补齐
+ * 新增：补充日期/海报字段，实现截图中的卡片UI效果
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -13,7 +14,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.2.0",
+  version: "5.2.1",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -225,6 +226,7 @@ function parseNames(text) {
     .slice(0, 15);
 }
 
+// ==================== 【修改点】补充海报/日期字段，适配卡片UI ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -241,18 +243,34 @@ async function searchTMDB(title, type, key) {
 
     if (res && res.results && res.results.length > 0) {
       var item = res.results[0];
+      
+      // 1. 处理完整海报地址，确保Forward App能正常加载海报
+      var posterUrl = null;
+      if (item.poster_path) {
+        posterUrl = key 
+          ? `https://image.tmdb.org/t/p/w500${item.poster_path}` 
+          : (Widget.tmdb?.imageBaseUrl || "https://image.tmdb.org/t/p") + "/w500" + item.poster_path;
+      }
+
+      // 2. 处理日期信息（适配截图中标题下方的日期显示）
+      // 电影用release_date，剧集用first_air_date
+      var releaseDate = type === "movie" ? item.release_date : item.first_air_date;
+
       return {
         id: item.id,
         type: "tmdb",
         title: item.title || item.name,
         description: item.overview || "暂无简介",
-        posterPath: item.poster_path,
+        posterPath: item.poster_path, // 保留原有字段兼容旧版本
+        posterUrl: posterUrl, // 新增完整海报地址
+        releaseDate: releaseDate || "", // 新增日期字段，用于卡片副标题显示
         rating: item.vote_average || 0,
         mediaType: type
       };
     }
     return null;
   } catch (e) {
+    console.log("[TMDB] 搜索失败: " + e.message);
     return null;
   }
 }
@@ -281,11 +299,14 @@ async function loadAIList(params) {
       var result = await searchTMDB(name, "movie", params.TMDB_API_KEY);
       if (!result) result = await searchTMDB(name, "tv", params.TMDB_API_KEY);
       
+      // 【修改点】补充默认字段，避免无TMDB结果时UI显示异常
       results.push(result || {
         id: "ai_" + i,
         type: "tmdb",
         title: name,
-        description: "AI 推荐作品"
+        description: "AI 推荐作品",
+        releaseDate: "", // 补充空日期字段，保持UI一致性
+        posterUrl: ""
       });
     }
     return results;
@@ -300,4 +321,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块");
+console.log("✅ AI影视推荐模块 5.2.1（UI适配版）");
