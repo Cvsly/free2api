@@ -1,9 +1,11 @@
 /**
- * AI 影视推荐模块
- * 修复：兼容更多第三方接口
- * 优化：AI提示词调整，新增演员作品推荐
- * 优化：API接口路径自动补齐
- * 优化：TMDB标题返回显示详情
+ * AI 影视推荐模块（最终优化版 v5.4.0）
+ * 
+ * 本次优化：
+ * 1. releaseDate 只返回年份，详情页显示更简洁
+ * 2. 添加 link 字段指向 TMDB 页面，改善资源加载提示
+ * 3. 设置空 videoUrl 避免“暂无可用资源”错误
+ * 4. 保留 subTitle / genreTitle 显示年份·类型
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -14,7 +16,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.2.0",
+  version: "5.4.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -115,7 +117,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
       parts: [{
         text: "你是一个影视助手。请推荐" + count + "部" + prompt + "相关影视作品。" +
               "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-              "只返回名称，不要编号，不要解释."
+              "只返回名称，每行一个，不要编号，不要解释."
       }]
     }],
     generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
@@ -158,7 +160,7 @@ async function callAI(config) {
   }
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
   var messages = [
-    { role: "system", content: "你是影视推荐助手。只返回影视名称。" },
+    { role: "system", content: "你是影视推荐助手。只返回影视名称，每行一个。" },
     { role: "user", content: "推荐" + config.count + "部与" + config.prompt + "相关的影视作品" }
   ];
   var res = await callOpenAIFormat(finalUrl, config.apiKey, config.model, messages);
@@ -197,7 +199,7 @@ function getGenreNames(ids) {
   return arr.join("/");
 }
 
-// ==================== 🔥 优化版 TMDB 搜索 ====================
+// ==================== 🔥 最终优化版 TMDB 搜索 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -226,7 +228,6 @@ async function searchTMDB(title, type, key) {
 
     if (!res || !res.results || res.results.length === 0) return null;
 
-    // 综合评分和人气排序
     res.results.sort((a, b) => {
       var scoreA = (a.vote_average || 0) * Math.log((a.vote_count || 1) + 1);
       var scoreB = (b.vote_average || 0) * Math.log((b.vote_count || 1) + 1);
@@ -235,27 +236,15 @@ async function searchTMDB(title, type, key) {
 
     var item = res.results[0];
 
-    // 主标题
     var titleName = item.title || item.name || title;
-
-    // 🔥 年份：只取一次
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "";
-
-    // 🔥 类型：优先使用 genre_ids，缺失时使用媒体类型
     var genres = getGenreNames(item.genre_ids);
-    if (!genres) {
-      genres = (type === "movie" ? "电影" : "剧集");
-    }
+    if (!genres) genres = (type === "movie" ? "电影" : "剧集");
 
-    // 🔥 副标题格式：年份·类型（年份只显示一次）
-    var yearGenre = year ? year + "·" + genres : genres;
-
-    // 简介
     var overview = item.overview || "暂无简介";
     if (overview.length > 200) overview = overview.substring(0, 200) + "...";
 
-    // 海报
     var posterPath = item.poster_path 
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
@@ -266,12 +255,15 @@ async function searchTMDB(title, type, key) {
       type: "tmdb",
       mediaType: type,
       title: titleName,
-      subTitle: yearGenre,       // 副标题：年份·类型
-      genreTitle: genres,        // 纯类型文本
+      subTitle: year ? year + "·" + genres : genres,
+      genreTitle: genres,
       description: overview,
       posterPath: posterPath,
-      releaseDate: rawDate,
-      rating: item.vote_average || 0
+      releaseDate: year,          // 🔥 只返回年份，详情页不再显示完整日期
+      rating: item.vote_average || 0,
+      link: "https://www.themoviedb.org/" + type + "/" + item.id,  // 🔥 添加 TMDB 链接
+      videoUrl: "",               // 🔥 明确无播放资源，避免触发错误搜索
+      previewUrl: ""
     };
   } catch (e) {
     console.error("TMDB搜索出错:", e.message);
@@ -314,7 +306,11 @@ async function loadAIList(params) {
           genreTitle: "AI推荐",
           description: "暂无详细信息",
           posterPath: null,
-          rating: 0
+          releaseDate: "",
+          rating: 0,
+          link: "",
+          videoUrl: "",
+          previewUrl: ""
         });
       }
     }
@@ -327,7 +323,12 @@ async function loadAIList(params) {
       title: "请求出错",
       subTitle: "错误",
       genreTitle: "错误",
-      description: e.message
+      description: e.message,
+      releaseDate: "",
+      rating: 0,
+      link: "",
+      videoUrl: "",
+      previewUrl: ""
     }];
   }
 }
@@ -338,4 +339,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.9 已加载 - 副标题优化完成");
+console.log("✅ AI影视推荐模块 v5.4.0 已加载 - 详情页日期/资源显示优化");
