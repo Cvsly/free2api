@@ -1,5 +1,5 @@
 /**
- * AI 影视推荐模块（JSCore 修复版）
+ * AI 影视推荐模块
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -10,7 +10,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方中转接口",
   author: "crush7s",
-  version: "5.2.2",
+  version: "5.2.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
