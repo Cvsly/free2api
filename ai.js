@@ -1,18 +1,18 @@
 /**
- * AI 影视推荐模块（JSCore 修复增强版）
- * 保持原有功能不变：
- * 1. 优化 TMDB 返回数据（显示上映时间 / 首播时间 + 类型）
- * 2. 优化 AI 提示词（支持演员名返回作品）
- * 3. 🔥 修复列表显示问题：按 ForwardWidgets 官方标准使用 description 字段
+ * AI 影视推荐模块（最终修复版）
+ * - 使用 subTitle 字段显示列表副标题（年份·类型）
+ * - 使用 description 字段存放剧情简介（详情页显示）
+ * - 完全兼容 ForwardWidgets 框架
  */
 const USER_AGENT = "Mozilla/5.0";
+
 // ==================== Metadata ====================
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.6",
+  version: "5.3.7",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -90,6 +90,7 @@ var WidgetMetadata = {
     }
   ]
 };
+
 // ==================== OpenAI ====================
 async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
   var headers = { "Content-Type": "application/json" };
@@ -98,49 +99,36 @@ async function callOpenAIFormat(apiUrl, apiKey, model, messages) {
       ? apiKey
       : "Bearer " + apiKey;
   }
-  var body = {
-    model: model,
-    messages: messages
-  };
+  var body = { model: model, messages: messages };
   return await Widget.http.post(apiUrl, body, {
     headers: headers,
     timeout: 60000
   });
 }
+
 // ==================== Gemini ====================
 async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   var base = apiUrl.replace(/\/+$/, "");
-  if (base.indexOf("/v1") === -1) {
-    base += "/v1beta";
-  }
+  if (base.indexOf("/v1") === -1) base += "/v1beta";
   var modelName = model || "gemini-1.5-flash";
-  if (modelName.indexOf("models/") !== 0) {
-    modelName = "models/" + modelName;
-  }
+  if (modelName.indexOf("models/") !== 0) modelName = "models/" + modelName;
   var url = base + "/" + modelName + ":generateContent?key=" + apiKey;
   var body = {
     contents: [{
       parts: [{
-        text:
-          "你是一个影视助手。请推荐" +
-          count +
-          "部" +
-          prompt +
-          "相关影视作品。" +
-          "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-          "只返回名称，不要编号，不要解释."
+        text: "你是一个影视助手。请推荐" + count + "部" + prompt + "相关影视作品。" +
+              "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
+              "只返回名称，每行一个，不要编号，不要解释."
       }]
     }],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 500
-    }
+    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
   };
   var res = await Widget.http.post(url, body, {
     headers: { "Content-Type": "application/json" }
   });
   return extractContent(res);
 }
+
 // ==================== 提取内容 ====================
 function extractContent(res) {
   if (!res) return "";
@@ -149,19 +137,14 @@ function extractContent(res) {
     if (c.message && c.message.content) return c.message.content;
     if (c.text) return c.text;
   }
-  if (
-    res.candidates &&
-    res.candidates[0] &&
-    res.candidates[0].content &&
-    res.candidates[0].content.parts &&
-    res.candidates[0].content.parts[0]
-  ) {
+  if (res.candidates?.[0]?.content?.parts?.[0]) {
     return res.candidates[0].content.parts[0].text;
   }
   if (res.data) return extractContent(res.data);
   if (typeof res === "string") return res;
   return "";
 }
+
 // ==================== URL 修复 ====================
 function normalizeApiUrl(apiUrl, format) {
   if (!apiUrl) return "";
@@ -172,41 +155,21 @@ function normalizeApiUrl(apiUrl, format) {
   if (!apiUrl.includes("/v1")) return apiUrl + "/v1/chat/completions";
   return apiUrl;
 }
+
 // ==================== AI入口 ====================
 async function callAI(config) {
   if (config.format === "gemini") {
-    return await callGeminiFormat(
-      config.apiUrl,
-      config.apiKey,
-      config.model,
-      config.prompt,
-      config.count
-    );
+    return await callGeminiFormat(config.apiUrl, config.apiKey, config.model, config.prompt, config.count);
   }
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
   var messages = [
-    {
-      role: "system",
-      content: "你是影视推荐助手。只返回影视名称。"
-    },
-    {
-      role: "user",
-      content:
-        "推荐" +
-        config.count +
-        "部与" +
-        config.prompt +
-        "相关的影视作品"
-    }
+    { role: "system", content: "你是影视推荐助手。只返回影视名称，每行一个。" },
+    { role: "user", content: "推荐" + config.count + "部与" + config.prompt + "相关的影视作品" }
   ];
-  var res = await callOpenAIFormat(
-    finalUrl,
-    config.apiKey,
-    config.model,
-    messages
-  );
+  var res = await callOpenAIFormat(finalUrl, config.apiKey, config.model, messages);
   return extractContent(res);
 }
+
 // ==================== 名称解析 ====================
 function parseNames(text) {
   if (!text) return [];
@@ -217,6 +180,7 @@ function parseNames(text) {
     .filter(t => t.length > 0)
     .slice(0, 15);
 }
+
 // ==================== 类型映射 ====================
 function getGenreNames(ids) {
   var map = {
@@ -237,7 +201,8 @@ function getGenreNames(ids) {
   }
   return arr.join("/");
 }
-// ==================== 🔥 核心修复：TMDB搜索 (按官方标准使用 description) ====================
+
+// ==================== 🔥 最终修复：TMDB搜索（正确使用 subTitle 和 description）====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -263,31 +228,45 @@ async function searchTMDB(title, type, key) {
         }
       });
     }
+
     if (!res || !res.results || res.results.length === 0) return null;
+
     // 智能排序（综合评分和人气）
     res.results.sort((a, b) => {
       var scoreA = (a.vote_average || 0) * Math.log((a.vote_count || 1) + 1);
       var scoreB = (b.vote_average || 0) * Math.log((b.vote_count || 1) + 1);
       return scoreB - scoreA;
     });
+
     var item = res.results[0];
+
     // 主标题：纯影视名称
     var titleName = item.title || item.name || title;
-    // 副标题：年份·类型
+
+    // 列表副标题：年份·类型
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "未知";
     var genres = getGenreNames(item.genre_ids);
     if (!genres) genres = (type === "movie" ? "电影" : "剧集");
-    var description = year + "·" + genres;  // 例：2026·惊悚/动作
+    var subTitle = year + "·" + genres;  // 如 "2026·惊悚/动作"
+
+    // 详情描述：剧情简介（限制长度）
+    var overview = item.overview || "暂无简介";
+    if (overview.length > 200) {
+      overview = overview.substring(0, 200) + "...";
+    }
+
     // 海报
     var posterPath = item.poster_path 
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
+
     return {
       id: item.id,
       type: "tmdb",
-      title: titleName,         // 主标题
-      description: description, // 🔥 副标题（ForwardWidgets 列表默认显示此字段作为副标题）
+      title: titleName,          // 主标题
+      subTitle: subTitle,        // 🔥 列表副标题（框架实际使用的字段）
+      description: overview,     // 详情描述（进入详情页显示）
       posterPath: posterPath,
       rating: item.vote_average || 0,
       mediaType: item.media_type || type
@@ -297,6 +276,7 @@ async function searchTMDB(title, type, key) {
     return null;
   }
 }
+
 // ==================== 主入口 ====================
 async function loadAIList(params) {
   var config = {
@@ -307,16 +287,19 @@ async function loadAIList(params) {
     prompt: params.prompt,
     count: parseInt(params.recommendCount) || 9
   };
+
   try {
     var text = await callAI(config);
     var names = parseNames(text);
     var results = [];
+
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
       var result = await searchTMDB(name, "movie", params.TMDB_API_KEY);
       if (!result) {
         result = await searchTMDB(name, "tv", params.TMDB_API_KEY);
       }
+
       if (result) {
         results.push(result);
       } else {
@@ -324,26 +307,31 @@ async function loadAIList(params) {
           id: "ai_" + i,
           type: "tmdb",
           title: name,
-          description: "AI推荐·未知类型",
+          subTitle: "AI推荐·未知类型",
+          description: "暂无详细信息",
           posterPath: null,
           rating: 0,
           mediaType: "movie"
         });
       }
     }
+
     return results;
   } catch (e) {
     return [{
       id: "err",
       type: "tmdb",
       title: "请求出错",
-      description: "错误信息"
+      subTitle: "错误",
+      description: e.message
     }];
   }
 }
+
 // ==================== 相似推荐 ====================
 async function loadSimilarList(params) {
   params.prompt = "类似《" + (params.referenceTitle || "") + "》的作品";
   return loadAIList(params);
 }
-console.log("✅ AI影视推荐模块 v5.3.6 已加载 - 按官方标准显示副标题");
+
+console.log("✅ AI影视推荐模块 v5.3.7 已加载 - list副标题使用 subTitle 字段");
