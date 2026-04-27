@@ -1,5 +1,5 @@
 /**
- * AI 影视推荐模块（JSCore 修复版 + 副标题优化）
+ * AI 影视推荐模块
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -123,7 +123,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   var body = {
     contents: [{
       parts: [{ 
-        text: "你是一个影视助手。请推荐" + count + "部" + prompt + "影视作品。只返回名称，每行一个，不要编号，不要解释。" 
+        text: "你是一个影视助手。请推荐" + count + "部" + prompt + "影视作品。只返回名称，不要编号，不要解释。" 
       }]
     }],
     generationConfig: {
@@ -190,7 +190,7 @@ async function callAI(config) {
 
   var finalUrl = normalizeApiUrl(config.apiUrl, config.format);
   var messages = [
-    { role: "system", content: "你是影视推荐助手。只返回影视名称，每行一个，严禁输出编号和解释。" },
+    { role: "system", content: "你是影视推荐助手。只返回影视名称，严禁输出编号和解释。" },
     { role: "user", content: "推荐" + config.count + "部" + config.prompt + "的影视作品" }
   ];
 
@@ -348,4 +348,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.2.3 已加载 - 副标题优化完成");
+console.log("✅ AI影视推荐模块 v5.2.3 ");
