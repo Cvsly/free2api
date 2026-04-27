@@ -3,6 +3,7 @@
  * 保持原有功能不变：
  * 1. 优化 TMDB 返回数据（显示上映时间 / 首播时间 + 类型）
  * 2. 优化 AI 提示词（支持演员名返回作品）
+ * 3. 🔥 修复标题和描述混在一起的问题
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -13,7 +14,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.3.0",
+  version: "5.3.1",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -139,7 +140,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
           prompt +
           "相关影视作品。" +
           "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-          "只返回名称，不要编号，不要解释."
+          "只返回名称，每行一个，不要编号，不要解释."
       }]
     }],
     generationConfig: {
@@ -215,7 +216,7 @@ async function callAI(config) {
     {
       role: "system",
       content:
-        "你是影视推荐助手。只返回影视名称。"
+        "你是影视推荐助手。只返回影视名称，每行一个。"
     },
     {
       role: "user",
@@ -250,33 +251,31 @@ function parseNames(text) {
     .slice(0, 15);
 }
 
-// ==================== 🆕 增强的类型映射 ====================
-function getGenreNames(ids, mediaType) {
+// ==================== 类型映射 ====================
+function getGenreNames(ids) {
   var map = {
-    // 电影类
     28: "动作", 12: "冒险", 16: "动画", 35: "喜剧",
     80: "犯罪", 99: "纪录", 18: "剧情", 10751: "家庭",
     14: "奇幻", 36: "历史", 27: "恐怖", 10402: "音乐",
     9648: "悬疑", 10749: "爱情", 878: "科幻",
     53: "惊悚", 10752: "战争", 37: "西部",
-    // 电视剧类
     10759: "动作冒险", 10762: "儿童", 10763: "新闻",
     10764: "真人秀", 10765: "科幻奇幻", 10766: "肥皂剧",
     10767: "脱口秀", 10768: "战争政治", 10770: "电视电影"
   };
 
-  if (!ids || !ids.length) return "未知类型";
+  if (!ids || !ids.length) return "";
 
   var arr = [];
   for (var i = 0; i < ids.length; i++) {
     if (map[ids[i]]) arr.push(map[ids[i]]);
-    if (arr.length >= 3) break; // 最多显示3个类型
+    if (arr.length >= 2) break;
   }
 
-  return arr.length > 0 ? arr.join(" / ") : "未知类型";
+  return arr.join(" / ");
 }
 
-// ==================== 🆕 增强的TMDB搜索 ====================
+// ==================== 🔥 核心修复：TMDB搜索 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -306,7 +305,7 @@ async function searchTMDB(title, type, key) {
 
     if (!res || !res.results || res.results.length === 0) return null;
 
-    // 🔥 智能排序（综合评分和人气）
+    // 智能排序（综合评分和人气）
     res.results.sort((a, b) => {
       var scoreA = (a.vote_average || 0) * Math.log((a.vote_count || 1) + 1);
       var scoreB = (b.vote_average || 0) * Math.log((b.vote_count || 1) + 1);
@@ -315,85 +314,61 @@ async function searchTMDB(title, type, key) {
 
     var item = res.results[0];
 
-    // ===== 🆕 优化年份显示 =====
+    // ===== 🔥 主标题：只有影视名称 =====
+    var titleName = item.title || item.name || title;
+    
+    // ===== 🔥 副标题：年份 + 类型 + 评分 =====
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "";
-
-    // 电影：上映时间 | 电视剧：首播时间
-    var dateType = type === "movie" ? "上映" : "首播";
-    var dateDisplay = year ? year : "未知年份";
     
-    // 如果有完整日期，显示更详细
-    if (rawDate && rawDate.length >= 10) {
-      var monthDay = rawDate.substring(5); // MM-DD
-      if (type === "tv") {
-        dateDisplay = year + "年首播";
+    // 生成副标题
+    var subtitleParts = [];
+    
+    // 添加年份标识
+    if (year) {
+      if (type === "movie") {
+        subtitleParts.push(year + "年上映");
       } else {
-        dateDisplay = year;
+        subtitleParts.push(year + "年首播");
       }
     }
-
-    // ===== 🆕 优化类型显示 =====
-    var genre = getGenreNames(item.genre_ids, type);
-
-    // ===== 🆕 完整标题处理 =====
-    var titleName = item.title || item.name || title;
-    var originalTitle = item.original_title || item.original_name || "";
     
-    // 如果有原始标题且与当前标题不同，添加显示
-    if (originalTitle && originalTitle !== titleName) {
-      titleName = titleName + " (" + originalTitle + ")";
+    // 添加类型
+    var genre = getGenreNames(item.genre_ids);
+    if (genre) {
+      subtitleParts.push(genre);
     }
-
-    // ===== 🆕 优化简介 =====
+    
+    // 添加评分
+    if (item.vote_average > 0) {
+      subtitleParts.push("⭐" + item.vote_average.toFixed(1));
+    }
+    
+    var subtitle = subtitleParts.join(" · ");
+    
+    // ===== 🔥 描述：简介内容 =====
     var overview = item.overview || "暂无简介";
     if (overview.length > 200) {
       overview = overview.substring(0, 200) + "...";
     }
 
-    // ===== 🆕 完整海报URL =====
+    // ===== 海报路径 =====
     var posterPath = item.poster_path 
       ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
       : null;
 
-    // ===== 🆕 构建优化的描述信息 =====
-    var descriptionParts = [];
-    
-    // 第一行：年份 + 类型标签
-    var metaLine = [];
-    if (year) {
-      metaLine.push(type === "movie" ? year + "年上映" : year + "年首播");
-    }
-    if (genre) {
-      metaLine.push(genre);
-    }
-    if (item.vote_average > 0) {
-      metaLine.push("⭐" + item.vote_average.toFixed(1));
-    }
-    
-    descriptionParts.push(metaLine.join(" · "));
-    
-    // 第二行：简介
-    if (overview) {
-      descriptionParts.push(overview);
-    }
-
-    // ===== 🆕 返回结构化的数据 =====
+    // ===== 🔥 返回结构：标题和描述完全分离 =====
     return {
       id: item.id,
       type: "tmdb",
-      title: titleName,
-      description: descriptionParts.join("\n"),
+      title: titleName,           // 主标题：只有影视名称
+      subtitle: subtitle,         // 副标题：年份 · 类型 · 评分
+      description: overview,      // 描述：简介内容
       posterPath: posterPath,
       rating: item.vote_average || 0,
       mediaType: item.media_type || type,
       year: year,
-      genreText: genre,
-      // 额外信息（可能对UI有用）
-      originalTitle: originalTitle,
-      voteCount: item.vote_count || 0,
-      popularity: item.popularity || 0,
-      dateDisplay: dateDisplay
+      genreText: genre
     };
   } catch (e) {
     console.error("TMDB搜索出错:", e.message);
@@ -421,27 +396,27 @@ async function loadAIList(params) {
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
 
-      // 先搜索电影，再搜索电视剧
       var result = await searchTMDB(name, "movie", params.TMDB_API_KEY);
 
       if (!result) {
         result = await searchTMDB(name, "tv", params.TMDB_API_KEY);
       }
 
-      // 🆕 如果没有找到TMDB结果，返回基础信息
-      if (!result) {
+      if (result) {
+        results.push(result);
+      } else {
+        // 🔥 没有找到TMDB结果时，也保持结构一致
         results.push({
           id: "ai_" + i,
           type: "tmdb",
           title: name,
-          description: "AI 推荐作品\n暂无详细信息",
+          subtitle: "AI 推荐",
+          description: "暂无详细信息",
           posterPath: null,
           rating: 0,
-          year: "未知",
-          genreText: "AI推荐"
+          year: "",
+          genreText: ""
         });
-      } else {
-        results.push(result);
       }
     }
 
@@ -451,7 +426,8 @@ async function loadAIList(params) {
       id: "err",
       type: "tmdb",
       title: "请求出错",
-      description: "错误信息：" + e.message + "\n请检查API配置"
+      subtitle: "错误",
+      description: e.message
     }];
   }
 }
@@ -462,4 +438,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 v5.3.0 增强优化版已加载 - TMDB显示优化");
+console.log("✅ AI影视推荐模块 v5.3.1 已加载 - 修复标题显示问题");
