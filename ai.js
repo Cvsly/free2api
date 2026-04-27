@@ -140,7 +140,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
           prompt +
           "相关影视作品。" +
           "如果输入的是演员名字，请返回该演员主演/参演的代表作品。" +
-          "只返回名称，每行一个，不要编号，不要解释."
+          "只返回名称，不要编号，不要解释."
       }]
     }],
     generationConfig: {
@@ -216,7 +216,7 @@ async function callAI(config) {
     {
       role: "system",
       content:
-        "你是影视推荐助手。只返回影视名称，每行一个。"
+        "你是影视推荐助手。只返回影视名称。"
     },
     {
       role: "user",
@@ -275,7 +275,7 @@ function getGenreNames(ids) {
   return arr.join("/");
 }
 
-// ==================== 🔥 TMDB搜索（参考 AI 搜索模块格式）====================
+// ==================== 🔥 TMDB搜索 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -317,7 +317,7 @@ async function searchTMDB(title, type, key) {
     // ===== 主标题：影视名称 =====
     var titleName = item.title || item.name || title;
     
-    // ===== 🔥 副标题格式：年份·类型（参考 AI 搜索模块）=====
+    // ===== 🔥 副标题格式：年份·类型 =====
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "未知";
     
@@ -334,7 +334,7 @@ async function searchTMDB(title, type, key) {
       }
     }
     
-    // 🔥 关键：description = "年份·类型" (和参考图片格式一致)
+    // 🔥 关键：description = "年份·类型" 
     var description = year + "·" + genres;
 
     // 海报路径
