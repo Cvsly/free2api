@@ -3,7 +3,8 @@
  * 修复：兼容更多第三方接口
  * 优化：AI提示词调整
  * 优化：API接口路径自动补齐
- * 新增：补充日期/海报字段，实现截图中的卡片UI效果
+ * 新增：补充日期/海报字段
+ * 新增：影视类型字段适配
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -14,7 +15,7 @@ var WidgetMetadata = {
   title: "AI 影视推荐",
   description: "基于自定义AI的智能影视推荐，兼容OpenAI/Gemini/NewApi等第三方接口",
   author: "crush7s",
-  version: "5.2.1",
+  version: "5.3.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -74,7 +75,8 @@ var WidgetMetadata = {
             { title: "轻松喜剧", value: "轻松喜剧" },
             { title: "科幻大片", value: "科幻大片" },
             { title: "悬疑推理", value: "悬疑推理" },
-            { title: "经典港剧", value: "经典港剧" },
+            { title: "恐怖惊悚", value: "恐怖惊悚" },
+            { title: "温情治愈", value: "温情治愈" },
           ],
         },
       ],
@@ -226,7 +228,7 @@ function parseNames(text) {
     .slice(0, 15);
 }
 
-// ==================== 【修改点】补充海报/日期字段，适配卡片UI ====================
+// ==================== 【修改点】补充海报/日期/类型字段，适配卡片UI ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
@@ -256,6 +258,23 @@ async function searchTMDB(title, type, key) {
       // 电影用release_date，剧集用first_air_date
       var releaseDate = type === "movie" ? item.release_date : item.first_air_date;
 
+      // 3. 处理类型信息，适配截图中的“类型/类型”格式
+      var genres = [];
+      if (item.genre_ids && item.genre_ids.length > 0) {
+        // 内置常用类型映射（中文）
+        var genreMap = {
+          28: "动作", 12: "冒险", 16: "动画", 35: "喜剧", 80: "犯罪",
+          99: "纪录片", 18: "剧情", 10751: "家庭", 14: "奇幻", 36: "历史",
+          27: "恐怖", 10402: "音乐", 9648: "悬疑", 10749: "爱情", 878: "科幻",
+          53: "惊悚", 10752: "战争", 37: "西部", 10759: "动作冒险", 10762: "儿童",
+          10763: "新闻", 10764: "真人秀", 10765: "科幻奇幻", 10766: "肥皂剧",
+          10767: "脱口秀", 10768: "战争政治"
+        };
+        // 映射并取前3个类型，用/连接
+        genres = item.genre_ids.slice(0, 3).map(id => genreMap[id] || "未知");
+      }
+      var genresStr = genres.join(" / ");
+
       return {
         id: item.id,
         type: "tmdb",
@@ -264,6 +283,7 @@ async function searchTMDB(title, type, key) {
         posterPath: item.poster_path, // 保留原有字段兼容旧版本
         posterUrl: posterUrl, // 新增完整海报地址
         releaseDate: releaseDate || "", // 新增日期字段，用于卡片副标题显示
+        genres: genresStr, // 新增类型字段，适配截图样式
         rating: item.vote_average || 0,
         mediaType: type
       };
@@ -306,6 +326,7 @@ async function loadAIList(params) {
         title: name,
         description: "AI 推荐作品",
         releaseDate: "", // 补充空日期字段，保持UI一致性
+        genres: "", // 补充空类型字段，保持UI一致性
         posterUrl: ""
       });
     }
@@ -321,4 +342,4 @@ async function loadSimilarList(params) {
   return loadAIList(params);
 }
 
-console.log("✅ AI影视推荐模块 5.2.1（UI适配版）");
+console.log("✅ AI影视推荐模块");
