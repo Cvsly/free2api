@@ -1,7 +1,7 @@
 /**
  * AI 影视推荐模块
- * 修复：调整 id 协议与 searchTitle 逻辑，强制激活聚合引擎资源匹配
- * 优化：增加媒体类型判断，确保电影/剧集分类搜索准确
+ * 修复：将返回类型改为 video 协议，以强制触发聚合引擎（采集站）资源匹配
+ * 优化：保留 TMDB 元数据展示
  */
 
 const USER_AGENT = "Mozilla/5.0";
@@ -10,9 +10,9 @@ const USER_AGENT = "Mozilla/5.0";
 var WidgetMetadata = {
   id: "ai.movie.recommendation",
   title: "AI 影视推荐",
-  description: "基于自定义AI的智能影视推荐，修复聚合引擎资源搜索匹配问题",
+  description: "基于自定义AI的智能影视推荐，支持全网聚合资源搜索",
   author: "crush7s",
-  version: "5.5.0",
+  version: "5.6.0",
   requiredVersion: "0.0.2",
   detailCacheDuration: 3600,
 
@@ -111,8 +111,7 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   var body = {
     contents: [{
       parts: [{
-        text: "你是一个影视助手。请推荐" + count + "部" + prompt + "相关影视作品。" +
-              "只返回名称，不要编号，不要解释."
+        text: "你是一个影视助手。请推荐" + count + "部" + prompt + "相关影视作品。只返回名称，不要解释."
       }]
     }],
     generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
@@ -121,7 +120,6 @@ async function callGeminiFormat(apiUrl, apiKey, model, prompt, count) {
   return extractContent(res);
 }
 
-// ==================== 提取内容 ====================
 function extractContent(res) {
   if (!res) return "";
   if (res.choices && res.choices[0]) {
@@ -133,22 +131,18 @@ function extractContent(res) {
     return res.candidates[0].content.parts[0].text;
   }
   if (res.data) return extractContent(res.data);
-  if (typeof res === "string") return res;
   return "";
 }
 
-// ==================== URL 修复 ====================
 function normalizeApiUrl(apiUrl, format) {
   if (!apiUrl) return "";
   apiUrl = apiUrl.replace(/\/+$/, "");
   if (format === "gemini") return apiUrl;
-  if (apiUrl.includes("/chat/completions")) return apiUrl;
   if (apiUrl.endsWith("/v1")) return apiUrl + "/chat/completions";
   if (!apiUrl.includes("/v1")) return apiUrl + "/v1/chat/completions";
   return apiUrl;
 }
 
-// ==================== AI入口 ====================
 async function callAI(config) {
   if (config.format === "gemini") {
     return await callGeminiFormat(config.apiUrl, config.apiKey, config.model, config.prompt, config.count);
@@ -162,112 +156,55 @@ async function callAI(config) {
   return extractContent(res);
 }
 
-// ==================== 名称解析 ====================
 function parseNames(text) {
   if (!text) return [];
-  return text
-    .split("\n")
-    .map(t => t.trim())
-    .map(t => t.replace(/^\d+[\.\、\)）\s\-]+/, ""))
-    .filter(t => t.length > 0)
-    .slice(0, 15);
+  return text.split("\n").map(t => t.trim()).map(t => t.replace(/^\d+[\.\、\)）\s\-]+/, "")).filter(t => t.length > 0);
 }
 
-// ==================== 类型映射 ====================
 function getGenreNames(ids) {
-  var map = {
-    28: "动作", 12: "冒险", 16: "动画", 35: "喜剧",
-    80: "犯罪", 99: "纪录", 18: "剧情", 10751: "家庭",
-    14: "奇幻", 36: "历史", 27: "恐怖", 10402: "音乐",
-    9648: "悬疑", 10749: "爱情", 878: "科幻",
-    53: "惊悚", 10752: "战争", 37: "西部",
-    10759: "动作冒险", 10762: "儿童", 10763: "新闻",
-    10764: "真人秀", 10765: "科幻奇幻", 10766: "肥皂剧",
-    10767: "脱口秀", 10768: "战争政治", 10770: "电视电影"
-  };
+  var map = { 28: "动作", 12: "冒险", 16: "动画", 35: "喜剧", 80: "犯罪", 18: "剧情", 9648: "悬疑", 878: "科幻" };
   if (!ids || !ids.length) return "";
   var arr = [];
-  for (var i = 0; i < ids.length; i++) {
-    if (map[ids[i]]) arr.push(map[ids[i]]);
-    if (arr.length >= 2) break;
-  }
+  for (var i = 0; i < ids.length; i++) { if (map[ids[i]]) arr.push(map[ids[i]]); if (arr.length >= 2) break; }
   return arr.join("/");
 }
 
-// ==================== 🔥 修复版 TMDB 搜索 (强化聚合匹配) ====================
+// ==================== 🔥 核心修复：TMDB 搜索结果转化为 video 类型 ====================
 async function searchTMDB(title, type, key) {
   try {
     var res;
     if (key) {
-      res = await Widget.http.get(
-        "https://api.themoviedb.org/3/search/" + type,
-        {
-          params: {
-            api_key: key,
-            query: title,
-            language: "zh-CN",
-            include_adult: false
-          }
-        }
-      );
+      res = await Widget.http.get("https://api.themoviedb.org/3/search/" + type, {
+        params: { api_key: key, query: title, language: "zh-CN", include_adult: false }
+      });
       if (res.data) res = res.data;
     } else {
-      res = await Widget.tmdb.get("/search/" + type, {
-        params: {
-          query: title,
-          language: "zh-CN",
-          include_adult: false
-        }
-      });
+      res = await Widget.tmdb.get("/search/" + type, { params: { query: title, language: "zh-CN" } });
     }
 
     if (!res || !res.results || res.results.length === 0) return null;
-
-    res.results.sort((a, b) => {
-      var scoreA = (a.vote_average || 0) * Math.log((a.vote_count || 1) + 1);
-      var scoreB = (b.vote_average || 0) * Math.log((b.vote_count || 1) + 1);
-      return scoreB - scoreA;
-    });
-
     var item = res.results[0];
     var titleName = item.title || item.name || title;
     var rawDate = item.release_date || item.first_air_date || "";
     var year = rawDate ? rawDate.substring(0, 4) : "";
-    var genres = getGenreNames(item.genre_ids);
-    if (!genres) {
-      genres = (type === "movie" ? "电影" : "剧集");
-    }
-
-    var yearGenre = year ? year + "·" + genres : genres;
-    var overview = item.overview || "暂无简介";
-    if (overview.length > 200) overview = overview.substring(0, 200) + "...";
-
-    var posterPath = item.poster_path 
-      ? "https://image.tmdb.org/t/p/w500" + item.poster_path 
-      : null;
-
-    // ✨ 核心修复逻辑：
-    // 1. id 使用 "tmdb://movie/ID" 格式，强制触发详情页的资源匹配
-    // 2. shareTitle 设为原始查询名称，提高采集站匹配率
-    // 3. 补全 episodeCount (仅限剧集)，激活详情页搜索入口
+    var genres = getGenreNames(item.genre_ids) || (type === "movie" ? "电影" : "剧集");
+    
+    // ✨ 核心逻辑改动：
+    // 1. type 必须为 "video"，否则不会触发聚合搜索
+    // 2. id 使用 "search:" 开头，这是 Forward 识别“需要搜索”的指令
     return {
-      id: "tmdb://" + type + "/" + item.id, 
+      id: "search:" + titleName,
       tmdbId: parseInt(item.id),
-      type: "tmdb",
+      type: "video", 
       mediaType: type,
       title: titleName,
-      subTitle: yearGenre,
-      genreTitle: genres,
-      description: overview,
-      posterPath: posterPath,
-      releaseDate: rawDate,
-      rating: item.vote_average || 0,
-      shareTitle: titleName, 
-      groupTitle: type === "movie" ? "电影" : "剧集",
-      episodeCount: type === "tv" ? 1 : 0 // 非零值有助于激活搜索按钮
+      subTitle: year ? year + " · " + genres : genres,
+      description: item.overview || "暂无简介",
+      posterPath: item.poster_path ? "https://image.tmdb.org/t/p/w500" + item.poster_path : null,
+      shareTitle: titleName,
+      groupTitle: type === "movie" ? "电影" : "剧集"
     };
   } catch (e) {
-    console.error("TMDB搜索出错:", e.message);
     return null;
   }
 }
@@ -275,51 +212,22 @@ async function searchTMDB(title, type, key) {
 // ==================== 主入口 ====================
 async function loadAIList(params) {
   var config = {
-    apiUrl: params.aiApiUrl,
-    apiKey: params.aiApiKey,
-    model: params.aiModel || "gpt-4o-mini",
-    format: params.aiApiFormat,
-    prompt: params.prompt,
-    count: parseInt(params.recommendCount) || 9
+    apiUrl: params.aiApiUrl, apiKey: params.aiApiKey, model: params.aiModel,
+    format: params.aiApiFormat, prompt: params.prompt, count: parseInt(params.recommendCount) || 9
   };
-
   try {
     var text = await callAI(config);
     var names = parseNames(text);
     var results = [];
-
     for (var i = 0; i < names.length; i++) {
       var name = names[i];
-      // 这里的逻辑保持不变，但 searchTMDB 返回的对象已经增强
       var result = await searchTMDB(name, "movie", params.TMDB_API_KEY);
-      if (!result) {
-        result = await searchTMDB(name, "tv", params.TMDB_API_KEY);
-      }
-
-      if (result) {
-        results.push(result);
-      } else {
-        // 兜底逻辑
-        results.push({
-          id: "search://" + name,
-          type: "tmdb",
-          mediaType: "movie",
-          title: name,
-          shareTitle: name,
-          subTitle: "AI推荐",
-          description: "未匹配到详情，尝试聚合搜索",
-          posterPath: null
-        });
-      }
+      if (!result) result = await searchTMDB(name, "tv", params.TMDB_API_KEY);
+      if (result) results.push(result);
     }
     return results;
   } catch (e) {
-    return [{
-      id: "err",
-      type: "tmdb",
-      title: "请求出错",
-      description: e.message
-    }];
+    return [{ id: "err", type: "video", title: "请求出错", description: e.message }];
   }
 }
 
@@ -327,5 +235,3 @@ async function loadSimilarList(params) {
   params.prompt = "类似《" + (params.referenceTitle || "") + "》的作品";
   return loadAIList(params);
 }
-
-console.log("✅ AI影视推荐模块 v5.5.0 已加载 - 聚合匹配增强版");
