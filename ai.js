@@ -1,11 +1,11 @@
 WidgetMetadata = {
-  id: "forward.maihaolian",
+  id: "枫叶.movie",
   title: "枫叶影院",
   version: "1.3.0",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：支持列表多页加载，包含热播榜、SVIP热映、红果短剧及各大影视频道",
-  author: "Forward",
+  author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
 
@@ -23,12 +23,6 @@ WidgetMetadata = {
   ],
 
   modules: [
-    {
-      id: "banner",
-      title: "热播榜",
-      functionName: "loadBanner",
-      cacheDuration: 1800,
-    },
     {
       id: "platformQQ",
       title: "腾讯SVIP热映",
