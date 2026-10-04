@@ -1,11 +1,11 @@
 WidgetMetadata = {
-  id: "forward.maihaolian",
+  id: "fengye.movie",
   title: "枫叶影院",
   version: "1.2.1",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
-  author: "Forward",
+  author: "crus7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
 
