@@ -1,5 +1,5 @@
 WidgetMetadata = {
-  id: "枫叶.movie",
+  id: "fengye.movie",
   title: "枫叶影院",
   version: "1.3.0",
   requiredVersion: "0.0.1",
