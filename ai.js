@@ -1,11 +1,11 @@
 WidgetMetadata = {
-  id: "fengye.movie",
+  id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.2.1",
+  version: "1.2.2",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
-  author: "crus7s",
+  author: "Forward",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
 
@@ -62,6 +62,20 @@ WidgetMetadata = {
           title: "平台",
           type: "constant",
           value: "bli",
+        },
+      ],
+    },
+    {
+      id: "platformDuanju",
+      title: "红果短剧",
+      functionName: "loadPlatform",
+      cacheDuration: 3600,
+      params: [
+        {
+          name: "platform",
+          title: "平台",
+          type: "constant",
+          value: "duanju",
         },
       ],
     },
@@ -360,13 +374,13 @@ async function loadBanner(params = {}) {
 }
 
 /*
- * 平台专区
+ * 平台与短剧专区路由修正
  */
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
   bli: "/label/bli.html",
-  duanju: "/label/duanju-1.html",
+  duanju: "/show/duanju--------1---.html", // 指向枫叶影院短剧分类列表
 };
 
 async function loadPlatform(params = {}) {
@@ -902,23 +916,19 @@ async function loadResource(params = {}) {
     let targetEp = null;
 
     if (wantEpisode > 0) {
-      // 从标题精确匹配集数（例如提取 "第10集" 中的 10）
       targetEp = epList.find((e) => {
         const epNum = parseInt((e.title.match(/\d+/) || [])[0], 10);
         return epNum === wantEpisode;
       });
 
-      // 索引尝试
       if (!targetEp && wantEpisode <= epList.length) {
         targetEp = epList[wantEpisode - 1];
       }
 
-      // 如果未能匹配到该集（说明该集尚未播出或更新），直接返回空数组
       if (!targetEp) {
         return [];
       }
     } else {
-      // 只有在初始搜索（wantEpisode === 0）时，才取第 1 集作为默认播放源
       targetEp = epList[0];
     }
 
@@ -929,7 +939,6 @@ async function loadResource(params = {}) {
       return [];
     }
 
-    // 若为首集检索，构造完整 episodeItems 数组供 App 后续调用
     const episodes =
       wantEpisode === 0
         ? epList.map((e) => ({
