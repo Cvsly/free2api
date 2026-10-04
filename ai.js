@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.0.0",
+  version: "1.0.1",
   requiredVersion: "0.0.1",
   description: "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
   author: "Forward",
@@ -15,7 +15,7 @@ WidgetMetadata = {
       functionName: "loadBanner",
       cacheDuration: 1800,
     },
-    // ===== 平台专区（/label/*.html 榜单页）=====
+    // ===== 平台专区 =====
     {
       id: "platformQQ",
       title: "腾讯SVIP热映",
@@ -44,7 +44,7 @@ WidgetMetadata = {
       cacheDuration: 3600,
       params: [{ name: "platform", title: "平台", type: "constant", value: "duanju" }],
     },
-    // ===== 频道（首页版块）=====
+    // ===== 频道 =====
     {
       id: "homeTV",
       title: "电视剧",
@@ -92,7 +92,6 @@ const BASE = "https://maihaolian.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// 平台专区榜单地址（注意：/label/duanju.html 是错误页，短剧真实地址带 -1 后缀）
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
@@ -100,7 +99,6 @@ const PLATFORM_URLS = {
   duanju: "/label/duanju-1.html",
 };
 
-// playerconfig.js 中 ps=1（需解析）的线路 -> 解析器地址；ps=0 线路的 url 本身就是 m3u8 直连
 const PARSE_MAP = {
   co: "https://zzrs.mfdyvip.com/player/?url=",
   BBA: "https://zzrs.mfdyvip.com/player/?url=",
@@ -148,7 +146,6 @@ function makeItem(id, title, poster, remark) {
   return item;
 }
 
-// 站点通用的卡片列表：public-list-exp 块（首页各版块、label 榜单、详情页推荐都是同一结构）
 function parseCards(html) {
   const items = [];
   const seen = {};
@@ -167,7 +164,6 @@ function parseCards(html) {
   return items;
 }
 
-// 首页版块切片：从「<h2 ...>版块名</h2>」切到下一个版块容器
 function sliceHomeSection(html, section) {
   const start = html.indexOf(">" + section + "</h2>");
   if (start < 0) return "";
@@ -176,7 +172,7 @@ function sliceHomeSection(html, section) {
   return next > 0 ? rest.slice(0, next) : rest;
 }
 
-// ===== 首页·热播榜（顶部轮播）=====
+// ===== 首页·热播榜 =====
 async function loadBanner(params = {}) {
   try {
     const html = await httpGet(BASE + "/");
@@ -187,7 +183,7 @@ async function loadBanner(params = {}) {
     while ((m = re.exec(html))) {
       const id = m[1];
       const body = m[2];
-      if (seen[id] || body.indexOf("slide-time-bj") < 0 && body.indexOf("slide-time-img") < 0) continue;
+      if (seen[id] || (body.indexOf("slide-time-bj") < 0 && body.indexOf("slide-time-img") < 0)) continue;
       const tm = body.match(/slide-info-types"><span>([^<]+)<\/span>/);
       if (!tm) continue;
       seen[id] = true;
@@ -212,7 +208,7 @@ async function loadBanner(params = {}) {
   }
 }
 
-// ===== 平台专区（腾讯 / 优酷 / B站 / 红果短剧）=====
+// ===== 平台专区 =====
 async function loadPlatform(params = {}) {
   try {
     const path = PLATFORM_URLS[params.platform || "qq"];
@@ -227,7 +223,7 @@ async function loadPlatform(params = {}) {
   }
 }
 
-// ===== 频道（首页版块：电视剧 / 电影 / 动漫 / 综艺 / 热门短剧）=====
+// ===== 频道 =====
 async function loadHomeSection(params = {}) {
   try {
     const section = params.section || "电视剧";
@@ -242,7 +238,7 @@ async function loadHomeSection(params = {}) {
   }
 }
 
-// ===== 搜索（maccms ajax suggest 接口，JSON）=====
+// ===== 搜索 =====
 async function search(params = {}) {
   try {
     const keyword = (params.keyword || "").trim();
@@ -257,12 +253,13 @@ async function search(params = {}) {
   }
 }
 
-// ===== 详情与播放（link + loadDetail 机制）=====
-// link 约定："detail:{vodId}" -> 详情；"play:{vodId}-{sid}-{nid}" -> 单集播放地址
+// ===== 详情与播放 =====
 async function loadDetail(link) {
-  const key = String(link);
+  const key = String(link || "");
   try {
-    if (key.indexOf("play:") === 0) return await resolvePlay(key.slice(5));
+    if (key.startsWith("play:")) {
+      return await resolvePlay(key.slice(5));
+    }
     const id = key.replace("detail:", "");
     return await loadVodDetail(id, key);
   } catch (error) {
@@ -278,17 +275,14 @@ async function loadVodDetail(id, link) {
   const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
   const title = tm ? decodeHtml(tm[1]) : id;
 
-  // 信息行：类型 / 演员 / 更新 / 连载
   const infos = {};
   const ire = /<strong class="r6">([^<]+)<\/strong>([^<]*)</g;
   let im;
   while ((im = ire.exec(html))) infos[im[1].replace(/[::\s]/g, "")] = decodeHtml(im[2]).trim();
 
-  // 海报：取 alt 含片名的那张图
   const pm = html.match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
   const poster = pm ? decodeHtml(pm[1]) : "";
 
-  // 简介
   const dm = html.match(/id="height_limit"[^>]*>([\s\S]*?)<\/div>/);
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
@@ -306,39 +300,36 @@ async function loadVodDetail(id, link) {
   const sids = Object.keys(groups);
   if (!sids.length) throw new Error("未找到播放线路");
 
-  // 逐线路探测第一集，优先 url 直连（m3u8）的线路
-  let picked = null;
-  for (let i = 0; i < sids.length; i++) {
-    const sid = sids[i];
-    const info = await probePlay(id, sid, 1);
-    if (info && info.direct) {
-      picked = { sid: sid, name: info.name };
-      break;
-    }
-    if (info && !picked) picked = { sid: sid, name: info.name };
-  }
-  if (!picked) throw new Error("线路探测失败");
-
-  const epNums = Object.keys(groups[picked.sid])
+  // 优先选取第一条线路
+  const pickedSid = sids[0];
+  const epNums = Object.keys(groups[pickedSid])
     .map(Number)
-    .sort(function (a, b) {
-      return a - b;
-    });
+    .sort((a, b) => a - b);
   const isMovie = epNums.length === 1;
-  const episodeItems = epNums.map(function (n) {
-    return {
-      id: "play:" + id + "-" + picked.sid + "-" + n,
-      type: "url",
-      title: isMovie ? "正片" : "第" + n + "集",
-      link: "play:" + id + "-" + picked.sid + "-" + n,
-    };
-  });
 
-  // 精彩推荐
+  // 构造标准 episodeItems，带完整路由链接及默认首集 videoUrl 解析尝试
+  const episodeItems = epNums.map((n) => ({
+    id: `play:${id}-${pickedSid}-${n}`,
+    type: "url",
+    title: isMovie ? "正片" : `第${n}集`,
+    link: `play:${id}-${pickedSid}-${n}`,
+  }));
+
+  // 尝试尝试抓取第 1 集作为详情页自带的默认播放视频源
+  let defaultVideoUrl = "";
+  try {
+    const firstPlay = await resolvePlay(`${id}-${pickedSid}-1`);
+    if (firstPlay && firstPlay.videoUrl) {
+      defaultVideoUrl = firstPlay.videoUrl;
+    }
+  } catch (e) {
+    console.warn("首集预加载播放资源跳过");
+  }
+
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
 
-  const item = {
+  return {
     id: String(id),
     type: "url",
     title: title,
@@ -347,47 +338,48 @@ async function loadVodDetail(id, link) {
     description: description,
     episodeItems: episodeItems,
     relatedItems: relatedItems,
-    durationText: (infos["连载"] || "") + (picked.name ? " · " + picked.name : ""),
+    videoUrl: defaultVideoUrl, // 默认视频播放地址
+    playerType: "system",
+    durationText: infos["连载"] || "",
+    releaseDate: infos["更新"] || "",
   };
-  if (infos["更新"]) item.releaseDate = infos["更新"];
-  return item;
 }
 
-// 读取播放页 player_aaaa，判断线路类型
-async function probePlay(id, sid, nid) {
+// 核心修复：解析具体单集播放页面，构建完整可调起播放器的 VideoItem
+async function resolvePlay(playKey) {
+  const html = await httpGet(BASE + "/play/" + playKey + ".html");
+  if (!html) return null;
+
+  const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
+  if (!m) return null;
+
+  let pj = {};
   try {
-    const html = await httpGet(BASE + "/play/" + id + "-" + sid + "-" + nid + ".html");
-    const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
-    if (!m) return null;
-    const pj = JSON.parse(m[1]);
-    const direct = /^https?:\/\//.test(pj.url || "");
-    return { name: pj.from || "", from: pj.from, url: pj.url, direct: direct };
+    pj = JSON.parse(m[1]);
   } catch (e) {
     return null;
   }
-}
 
-// 单集播放：直连 m3u8 直接给系统播放器；解析型线路退化为解析页地址
-async function resolvePlay(playKey) {
-  const html = await httpGet(BASE + "/play/" + playKey + ".html");
-  const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
-  if (!m) return null;
-  const pj = JSON.parse(m[1]);
-  const url = pj.url || "";
-  let videoUrl;
-  if (/^https?:\/\//.test(url)) {
-    videoUrl = url; // 自营线路：url 即 m3u8
-  } else if (PARSE_MAP[pj.from]) {
-    videoUrl = PARSE_MAP[pj.from] + url; // 解析型线路（至臻4k / 蓝光2k 等）
-  } else {
-    return null;
+  const rawUrl = pj.url || "";
+  let videoUrl = "";
+
+  // 1. 直连地址判断（例如 .m3u8, .mp4）
+  if (/^https?:\/\//.test(rawUrl)) {
+    videoUrl = rawUrl;
+  } 
+  // 2. 解析型线路拼接保底
+  else if (PARSE_MAP[pj.from] && rawUrl) {
+    videoUrl = PARSE_MAP[pj.from] + encodeURIComponent(rawUrl);
   }
+
+  if (!videoUrl) return null;
+
   return {
     id: "play:" + playKey,
     type: "url",
-    title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
+    title: (pj.vod_data && pj.vod_data.vod_name) ? pj.vod_data.vod_name : "播放",
     link: "play:" + playKey,
-    videoUrl: videoUrl,
-    playerType: "system",
+    videoUrl: videoUrl,       // 核心：系统播放器调起的真正 URL
+    playerType: "system",     // 显式指定系统播放器
   };
 }
