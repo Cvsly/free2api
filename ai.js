@@ -24,12 +24,6 @@ WidgetMetadata = {
 
   modules: [
     {
-      id: "banner",
-      title: "热播榜",
-      functionName: "loadBanner",
-      cacheDuration: 1800,
-    },
-    {
       id: "platformQQ",
       title: "腾讯SVIP热映",
       functionName: "loadPlatform",
