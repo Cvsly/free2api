@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.2.2",
+  version: "1.2.3",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
@@ -380,7 +380,7 @@ const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
   bli: "/label/bli.html",
-  duanju: "/show/duanju--------1---.html", // 指向枫叶影院短剧分类列表
+  duanju: "/label/duanju.html", // 正确的红果短剧列表路径
 };
 
 async function loadPlatform(params = {}) {
