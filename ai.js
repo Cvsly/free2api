@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.2.0",
+  version: "1.2.1",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
@@ -917,21 +917,29 @@ async function loadResource(params = {}) {
       return [];
     }
 
-    // 集数映射匹配
+    // 集数精准映射匹配逻辑
     const epList = vodDetail.episodeItems;
-    let targetEp = epList[0];
+    let targetEp = null;
 
     if (wantEpisode > 0) {
-      const found = epList.find((e) => {
+      // 从标题精确匹配集数（例如提取 "第10集" 中的 10）
+      targetEp = epList.find((e) => {
         const epNum = parseInt((e.title.match(/\d+/) || [])[0], 10);
         return epNum === wantEpisode;
       });
 
-      if (found) {
-        targetEp = found;
-      } else if (wantEpisode <= epList.length) {
+      // 索引尝试
+      if (!targetEp && wantEpisode <= epList.length) {
         targetEp = epList[wantEpisode - 1];
       }
+
+      // 如果未能匹配到该集（说明该集尚未播出或更新），直接返回空数组
+      if (!targetEp) {
+        return [];
+      }
+    } else {
+      // 只有在初始搜索（wantEpisode === 0）时，才取第 1 集作为默认播放源
+      targetEp = epList[0];
     }
 
     // 解析出目标集的直链
