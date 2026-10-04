@@ -72,20 +72,6 @@ WidgetMetadata = {
       ],
     },
     {
-      id: "platformDuanju",
-      title: "红果短剧",
-      functionName: "loadPlatform",
-      cacheDuration: 3600,
-      params: [
-        {
-          name: "platform",
-          title: "平台",
-          type: "constant",
-          value: "duanju",
-        },
-      ],
-    },
-    {
       id: "homeTV",
       title: "电视剧",
       functionName: "loadHomeSection",
