@@ -1,9 +1,9 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.0.1",
+  version: "1.0.2",
   requiredVersion: "0.0.1",
-  description: "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
+  description: "枫叶4K影院（maihaolian.com）：全平台热映、短剧及各分类频道高码率解析模块",
   author: "Forward",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -90,7 +90,7 @@ WidgetMetadata = {
 
 const BASE = "https://maihaolian.com";
 const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
@@ -99,18 +99,8 @@ const PLATFORM_URLS = {
   duanju: "/label/duanju-1.html",
 };
 
-const PARSE_MAP = {
-  co: "https://zzrs.mfdyvip.com/player/?url=",
-  BBA: "https://zzrs.mfdyvip.com/player/?url=",
-  vwnet: "https://zzrs.mfdyvip.com/player/?url=",
-  YYNB: "https://zzrs.mfdyvip.com/player/?url=",
-  qiyi: "https://zzrs.mfdyvip.com/player/?url=",
-  bilibili: "https://zzrs.mfdyvip.com/player/?url=",
-  qq: "https://zzrs.mfdyvip.com/player/?url=",
-  youku: "https://zzrs.mfdyvip.com/player/?url=",
-  JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
-  JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
-};
+// 后备通用解析接口前缀
+const DEFAULT_PARSER = "https://zzrs.mfdyvip.com/player/?url=";
 
 async function httpGet(url, params) {
   const opt = { headers: { "User-Agent": UA, Referer: BASE + "/" } };
@@ -253,7 +243,7 @@ async function search(params = {}) {
   }
 }
 
-// ===== 详情与播放 =====
+// ===== 详情与播放（link 机制）=====
 async function loadDetail(link) {
   const key = String(link || "");
   try {
@@ -287,7 +277,7 @@ async function loadVodDetail(id, link) {
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
 
-  // 选集：/play/{id}-{sid}-{nid}.html 按线路分组
+  // 匹配所有线路下的选集组
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -300,31 +290,19 @@ async function loadVodDetail(id, link) {
   const sids = Object.keys(groups);
   if (!sids.length) throw new Error("未找到播放线路");
 
-  // 优先选取第一条线路
   const pickedSid = sids[0];
   const epNums = Object.keys(groups[pickedSid])
     .map(Number)
     .sort((a, b) => a - b);
   const isMovie = epNums.length === 1;
 
-  // 构造标准 episodeItems，带完整路由链接及默认首集 videoUrl 解析尝试
+  // 构建剧集列表
   const episodeItems = epNums.map((n) => ({
     id: `play:${id}-${pickedSid}-${n}`,
     type: "url",
     title: isMovie ? "正片" : `第${n}集`,
     link: `play:${id}-${pickedSid}-${n}`,
   }));
-
-  // 尝试尝试抓取第 1 集作为详情页自带的默认播放视频源
-  let defaultVideoUrl = "";
-  try {
-    const firstPlay = await resolvePlay(`${id}-${pickedSid}-1`);
-    if (firstPlay && firstPlay.videoUrl) {
-      defaultVideoUrl = firstPlay.videoUrl;
-    }
-  } catch (e) {
-    console.warn("首集预加载播放资源跳过");
-  }
 
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
@@ -338,48 +316,63 @@ async function loadVodDetail(id, link) {
     description: description,
     episodeItems: episodeItems,
     relatedItems: relatedItems,
-    videoUrl: defaultVideoUrl, // 默认视频播放地址
-    playerType: "system",
     durationText: infos["连载"] || "",
     releaseDate: infos["更新"] || "",
   };
 }
 
-// 核心修复：解析具体单集播放页面，构建完整可调起播放器的 VideoItem
+// ===== 核心：强化的播放资源解析逻辑 =====
 async function resolvePlay(playKey) {
-  const html = await httpGet(BASE + "/play/" + playKey + ".html");
+  const targetUrl = BASE + "/play/" + playKey + ".html";
+  const html = await httpGet(targetUrl);
   if (!html) return null;
 
-  const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
-  if (!m) return null;
+  const $ = Widget.html.load(html);
+  let finalVideoUrl = "";
 
-  let pj = {};
-  try {
-    pj = JSON.parse(m[1]);
-  } catch (e) {
-    return null;
+  // 1. 优先抓取页面直接渲染的 iframe 播放源地址
+  const iframeSrc = $(".player-box iframe").attr("src") \vert{}\vert{} $("iframe").attr("src") || "";
+  if (iframeSrc) {
+    finalVideoUrl = iframeSrc.startsWith("//")
+      ? "https:" + iframeSrc
+      : iframeSrc.startsWith("/")
+      ? BASE + iframeSrc
+      : iframeSrc;
   }
 
-  const rawUrl = pj.url || "";
-  let videoUrl = "";
+  // 2. 若无直接 iframe，降级提取 MacCMS 的 player_aaaa JSON 变量
+  if (!finalVideoUrl) {
+    const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
+    if (m && m[1]) {
+      try {
+        const pj = JSON.parse(m[1]);
+        const rawUrl = pj.url || "";
 
-  // 1. 直连地址判断（例如 .m3u8, .mp4）
-  if (/^https?:\/\//.test(rawUrl)) {
-    videoUrl = rawUrl;
-  } 
-  // 2. 解析型线路拼接保底
-  else if (PARSE_MAP[pj.from] && rawUrl) {
-    videoUrl = PARSE_MAP[pj.from] + encodeURIComponent(rawUrl);
+        if (/^https?:\/\/.*\.m3u8/i.test(rawUrl) || /^https?:\/\/.*\.mp4/i.test(rawUrl)) {
+          // 直接可播的 m3u8/mp4 媒体直链
+          finalVideoUrl = rawUrl;
+        } else if (/^https?:\/\//i.test(rawUrl)) {
+          // 普通解析页面链接
+          finalVideoUrl = rawUrl;
+        } else if (rawUrl) {
+          // 相对路径/加密流：拼装网页默认解析前缀
+          finalVideoUrl = DEFAULT_PARSER + encodeURIComponent(rawUrl);
+        }
+      } catch (e) {
+        console.error("解析 player_aaaa 失败:", e);
+      }
+    }
   }
 
-  if (!videoUrl) return null;
+  if (!finalVideoUrl) return null;
 
   return {
     id: "play:" + playKey,
     type: "url",
-    title: (pj.vod_data && pj.vod_data.vod_name) ? pj.vod_data.vod_name : "播放",
+    title: "播放中",
     link: "play:" + playKey,
-    videoUrl: videoUrl,       // 核心：系统播放器调起的真正 URL
-    playerType: "system",     // 显式指定系统播放器
+    videoUrl: finalVideoUrl,
+    // 将 playerType 设为 app，让 App 的 Webview/内置播放引擎接管 HTML 网页播放解析
+    playerType: finalVideoUrl.indexOf(".m3u8") > -1 ? "system" : "app",
   };
 }
