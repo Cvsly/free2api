@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.1.0",
+  version: "1.2.0",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
@@ -162,6 +162,12 @@ WidgetMetadata = {
         title: "关键词",
         type: "input",
       },
+      {
+        name: "page",
+        title: "页码",
+        type: "page",
+        value: "1",
+      },
     ],
   },
 };
@@ -202,6 +208,8 @@ async function httpGet(url, params) {
     headers: {
       "User-Agent": UA,
       Referer: BASE + "/",
+      Accept:
+        "text/html,application/json,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
   };
 
@@ -224,6 +232,9 @@ function decodeHtml(s) {
     .replace(/&nbsp;/g, " ")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#58;/gi, ":")
+    .replace(/&#x2F;/gi, "/")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
 }
@@ -238,6 +249,17 @@ function stripTags(s) {
 }
 
 /*
+ * 安全转换数字
+ */
+function safeNumber(value) {
+  const n = Number(value);
+
+  return Number.isFinite(n)
+    ? n
+    : undefined;
+}
+
+/*
  * 创建 VideoItem
  *
  * Skill 要求：
@@ -245,19 +267,24 @@ function stripTags(s) {
  * link=自己的 detail key
  */
 function makeItem(id, title, poster, remark) {
+  const cleanId = String(id || "").trim();
+
   const item = {
-    id: String(id),
+    id: cleanId,
     type: "url",
-    title: decodeHtml(title),
-    link: "detail:" + id,
+    mediaType: "tv",
+    title: decodeHtml(title || ""),
+    link: "detail:" + cleanId,
   };
 
   if (poster) {
-    item.posterPath = decodeHtml(poster);
+    item.posterPath =
+      decodeHtml(poster);
   }
 
   if (remark) {
-    item.durationText = stripTags(remark);
+    item.durationText =
+      stripTags(remark);
   }
 
   return item;
@@ -270,15 +297,18 @@ function parseCards(html) {
   const items = [];
   const seen = {};
 
+  const source =
+    String(html || "");
+
   const re =
     /<a[^>]*class="public-list-exp"[^>]*href="\/detail\/(\d+)\.html"[^>]*title="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
 
   let m;
 
-  while ((m = re.exec(html))) {
+  while ((m = re.exec(source))) {
     const id = m[1];
 
-    if (seen[id]) {
+    if (!id || seen[id]) {
       continue;
     }
 
@@ -287,12 +317,20 @@ function parseCards(html) {
     const body = m[3];
 
     const pm =
-      body.match(/data-src="([^"]+)"/) ||
-      body.match(/src="(https?:[^"]+)"/);
+      body.match(
+        /data-src="([^"]+)"/
+      ) ||
+      body.match(
+        /data-original="([^"]+)"/
+      ) ||
+      body.match(
+        /src="(https?:[^"]+)"/
+      );
 
-    const rm = body.match(
-      /class="ft2">([\s\S]*?)<\/i>/
-    );
+    const rm =
+      body.match(
+        /class="ft2">([\s\S]*?)<\/i>/
+      );
 
     items.push(
       makeItem(
@@ -310,20 +348,31 @@ function parseCards(html) {
 /*
  * 首页版块
  */
-function sliceHomeSection(html, section) {
-  const start = html.indexOf(
-    ">" + section + "</h2>"
-  );
+function sliceHomeSection(
+  html,
+  section
+) {
+  const source =
+    String(html || "");
+
+  const start =
+    source.indexOf(
+      ">" +
+        section +
+        "</h2>"
+    );
 
   if (start < 0) {
     return "";
   }
 
-  const rest = html.slice(start);
+  const rest =
+    source.slice(start);
 
-  const next = rest.indexOf(
-    '<div class="box-width'
-  );
+  const next =
+    rest.indexOf(
+      '<div class="box-width'
+    );
 
   return next > 0
     ? rest.slice(0, next)
@@ -333,9 +382,14 @@ function sliceHomeSection(html, section) {
 /*
  * 热播榜
  */
-async function loadBanner(params = {}) {
+async function loadBanner(
+  params = {}
+) {
   try {
-    const html = await httpGet(BASE + "/");
+    const html =
+      await httpGet(
+        BASE + "/"
+      );
 
     const items = [];
     const seen = {};
@@ -352,16 +406,21 @@ async function loadBanner(params = {}) {
       if (
         seen[id] ||
         (
-          body.indexOf("slide-time-bj") < 0 &&
-          body.indexOf("slide-time-img") < 0
+          body.indexOf(
+            "slide-time-bj"
+          ) < 0 &&
+          body.indexOf(
+            "slide-time-img"
+          ) < 0
         )
       ) {
         continue;
       }
 
-      const tm = body.match(
-        /slide-info-types"><span>([^<]+)<\/span>/
-      );
+      const tm =
+        body.match(
+          /slide-info-types"><span>([^<]+)<\/span>/
+        );
 
       if (!tm) {
         continue;
@@ -369,13 +428,15 @@ async function loadBanner(params = {}) {
 
       seen[id] = true;
 
-      const bg = body.match(
-        /background-image:\s*url\(([^)]+)\)/
-      );
+      const bg =
+        body.match(
+          /background-image:\s*url\(([^)]+)\)/
+        );
 
-      const score = body.match(
-        /ds-shoucang fa"><\/i>([\d.]+)/
-      );
+      const score =
+        body.match(
+          /ds-shoucang fa"><\/i>([\d.]+)/
+        );
 
       const infos = [];
 
@@ -384,25 +445,32 @@ async function loadBanner(params = {}) {
 
       let im;
 
-      while ((im = ire.exec(body))) {
+      while (
+        (im = ire.exec(body))
+      ) {
         if (
           im[1] !== tm[1] &&
           infos.length < 3
         ) {
-          infos.push(im[1]);
+          infos.push(
+            im[1]
+          );
         }
       }
 
-      const item = makeItem(
-        id,
-        tm[1],
-        "",
-        infos.join(" · ")
-      );
+      const item =
+        makeItem(
+          id,
+          tm[1],
+          "",
+          infos.join(" · ")
+        );
 
       if (bg) {
         item.backdropPath =
-          decodeHtml(bg[1]);
+          decodeHtml(
+            bg[1]
+          );
       }
 
       if (score) {
@@ -414,7 +482,9 @@ async function loadBanner(params = {}) {
     }
 
     if (!items.length) {
-      throw new Error("热播榜为空");
+      throw new Error(
+        "热播榜为空"
+      );
     }
 
     return items;
@@ -438,7 +508,9 @@ const PLATFORM_URLS = {
   duanju: "/label/duanju-1.html",
 };
 
-async function loadPlatform(params = {}) {
+async function loadPlatform(
+  params = {}
+) {
   try {
     const path =
       PLATFORM_URLS[
@@ -447,17 +519,23 @@ async function loadPlatform(params = {}) {
 
     if (!path) {
       throw new Error(
-        "未知平台: " + params.platform
+        "未知平台: " +
+          params.platform
       );
     }
 
     const html =
-      await httpGet(BASE + path);
+      await httpGet(
+        BASE + path
+      );
 
-    const items = parseCards(html);
+    const items =
+      parseCards(html);
 
     if (!items.length) {
-      throw new Error("榜单为空");
+      throw new Error(
+        "榜单为空"
+      );
     }
 
     return items;
@@ -474,13 +552,18 @@ async function loadPlatform(params = {}) {
 /*
  * 首页版块
  */
-async function loadHomeSection(params = {}) {
+async function loadHomeSection(
+  params = {}
+) {
   try {
     const section =
-      params.section || "电视剧";
+      params.section ||
+      "电视剧";
 
     const html =
-      await httpGet(BASE + "/");
+      await httpGet(
+        BASE + "/"
+      );
 
     const slice =
       sliceHomeSection(
@@ -493,7 +576,8 @@ async function loadHomeSection(params = {}) {
 
     if (!items.length) {
       throw new Error(
-        "版块为空: " + section
+        "版块为空: " +
+          section
       );
     }
 
@@ -508,51 +592,623 @@ async function loadHomeSection(params = {}) {
   }
 }
 
-/*
+/* =========================================================
  * 搜索
- */
-async function search(params = {}) {
-  try {
-    const keyword =
-      (params.keyword || "").trim();
+ * ========================================================= */
 
-    if (!keyword) {
-      return [];
+/*
+ * 网站原生搜索接口
+ *
+ * https://maihaolian.com/index.php/ajax/suggest
+ *
+ * 参数：
+ *
+ * mid=1
+ * wd=关键词
+ * limit=500
+ *
+ * 不再使用其他搜索网站。
+ */
+const SEARCH_URL =
+  BASE +
+  "/index.php/ajax/suggest";
+
+/*
+ * 尝试 JSON 解析
+ */
+function parseJsonSafely(data) {
+  if (
+    data === null ||
+    data === undefined
+  ) {
+    return null;
+  }
+
+  if (
+    typeof data === "object"
+  ) {
+    return data;
+  }
+
+  const text =
+    String(data).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+}
+
+/*
+ * 获取搜索数组
+ *
+ * 兼容：
+ *
+ * {
+ *   list: []
+ * }
+ *
+ * {
+ *   data: []
+ * }
+ *
+ * {
+ *   result: []
+ * }
+ *
+ * {
+ *   data: {
+ *      list: []
+ *   }
+ * }
+ */
+function extractSearchList(
+  json
+) {
+  if (!json) {
+    return [];
+  }
+
+  if (
+    Array.isArray(json)
+  ) {
+    return json;
+  }
+
+  const candidates = [
+    json.list,
+    json.data,
+    json.result,
+
+    json.data &&
+      json.data.list,
+
+    json.data &&
+      json.data.result,
+
+    json.data &&
+      json.data.data,
+
+    json.result &&
+      json.result.list,
+
+    json.result &&
+      json.result.data,
+  ];
+
+  for (
+    let i = 0;
+    i < candidates.length;
+    i++
+  ) {
+    if (
+      Array.isArray(
+        candidates[i]
+      )
+    ) {
+      return candidates[i];
+    }
+  }
+
+  return [];
+}
+
+/*
+ * 获取字段
+ */
+function firstValue(
+  obj,
+  keys
+) {
+  if (!obj) {
+    return "";
+  }
+
+  for (
+    let i = 0;
+    i < keys.length;
+    i++
+  ) {
+    const key =
+      keys[i];
+
+    if (
+      obj[key] !== undefined &&
+      obj[key] !== null &&
+      String(
+        obj[key]
+      ).trim() !== ""
+    ) {
+      return obj[key];
+    }
+  }
+
+  return "";
+}
+
+/*
+ * 搜索结果 ID
+ */
+function getSearchId(
+  item
+) {
+  return firstValue(
+    item,
+    [
+      "id",
+      "vod_id",
+      "vodId",
+      "ID",
+      "Id",
+    ]
+  );
+}
+
+/*
+ * 搜索结果标题
+ */
+function getSearchTitle(
+  item
+) {
+  return firstValue(
+    item,
+    [
+      "name",
+      "vod_name",
+      "vodName",
+      "title",
+      "vod_title",
+    ]
+  );
+}
+
+/*
+ * 搜索结果封面
+ */
+function getSearchPoster(
+  item
+) {
+  return firstValue(
+    item,
+    [
+      "pic",
+      "vod_pic",
+      "vodPic",
+      "poster",
+      "cover",
+      "image",
+      "vod_image",
+    ]
+  );
+}
+
+/*
+ * 搜索结果副标题
+ */
+function getSearchRemark(
+  item
+) {
+  return firstValue(
+    item,
+    [
+      "note",
+      "vod_remarks",
+      "vodRemarks",
+      "remarks",
+      "remark",
+      "subtitle",
+      "vod_sub",
+    ]
+  );
+}
+
+/*
+ * 搜索结果类型
+ */
+function getSearchType(
+  item
+) {
+  return firstValue(
+    item,
+    [
+      "type_name",
+      "typeName",
+      "vod_class",
+      "class",
+      "vod_type",
+      "type",
+    ]
+  );
+}
+
+/*
+ * 将一个原生搜索对象
+ * 转换成 Forward VideoItem
+ */
+function makeSearchItem(
+  raw
+) {
+  if (
+    !raw ||
+    typeof raw !== "object"
+  ) {
+    return null;
+  }
+
+  const id =
+    String(
+      getSearchId(raw) || ""
+    ).trim();
+
+  const title =
+    stripTags(
+      getSearchTitle(raw)
+    );
+
+  if (!id || !title) {
+    return null;
+  }
+
+  const poster =
+    String(
+      getSearchPoster(raw) ||
+        ""
+    ).trim();
+
+  const remark =
+    stripTags(
+      getSearchRemark(raw)
+    );
+
+  const typeName =
+    stripTags(
+      getSearchType(raw)
+    );
+
+  const item =
+    makeItem(
+      id,
+      title,
+      poster,
+      remark
+    );
+
+  /*
+   * 搜索结果补充信息
+   */
+  if (typeName) {
+    item.description =
+      typeName;
+  }
+
+  /*
+   * 年份
+   */
+  const year =
+    firstValue(
+      raw,
+      [
+        "year",
+        "vod_year",
+        "vodYear",
+      ]
+    );
+
+  if (year) {
+    item.releaseDate =
+      String(year);
+  }
+
+  /*
+   * 评分
+   */
+  const rating =
+    firstValue(
+      raw,
+      [
+        "score",
+        "vod_score",
+        "vodScore",
+        "rating",
+      ]
+    );
+
+  const numericRating =
+    safeNumber(rating);
+
+  if (
+    numericRating !== undefined
+  ) {
+    item.rating =
+      numericRating;
+  }
+
+  return item;
+}
+
+/*
+ * 搜索接口可能直接返回 HTML。
+ *
+ * 这里提供 HTML 兼容解析，
+ * 但不会主动请求第二个搜索地址。
+ */
+function parseSearchHtml(
+  html
+) {
+  const source =
+    String(html || "");
+
+  if (!source) {
+    return [];
+  }
+
+  /*
+   * 优先使用正常站点卡片结构。
+   */
+  const cards =
+    parseCards(source);
+
+  if (cards.length) {
+    return cards;
+  }
+
+  /*
+   * 兼容搜索接口返回简化 HTML。
+   */
+  const items = [];
+  const seen = {};
+
+  const re =
+    /<a[^>]*href=["']\/detail\/(\d+)\.html["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+  let match;
+
+  while (
+    (match = re.exec(source))
+  ) {
+    const id =
+      String(match[1]);
+
+    if (seen[id]) {
+      continue;
     }
 
+    const block =
+      match[2];
+
+    const titleMatch =
+      block.match(
+        /title=["']([^"']+)["']/i
+      );
+
+    const imgMatch =
+      block.match(
+        /(?:data-src|data-original|src)=["']([^"']+)["']/i
+      );
+
+    const title =
+      titleMatch
+        ? titleMatch[1]
+        : stripTags(block);
+
+    if (!title) {
+      continue;
+    }
+
+    seen[id] = true;
+
+    items.push(
+      makeItem(
+        id,
+        title,
+        imgMatch
+          ? imgMatch[1]
+          : "",
+        ""
+      )
+    );
+  }
+
+  return items;
+}
+
+/*
+ * 网站原生聚合搜索
+ *
+ * 这里的“聚合”不是额外拼接第三方网站，
+ * 而是直接使用 maihaolian 自己的 suggest
+ * 接口，由网站本身返回搜索结果。
+ *
+ * limit=500：
+ * 尽量一次获取完整搜索结果。
+ *
+ * page：
+ * Forward 有分页参数时，
+ * 在已经取得的结果上做本地分页。
+ */
+async function search(
+  params = {}
+) {
+  const keyword =
+    String(
+      params.keyword ||
+        params.wd ||
+        params.query ||
+        ""
+    ).trim();
+
+  if (!keyword) {
+    return [];
+  }
+
+  const page =
+    Math.max(
+      parseInt(
+        params.page,
+        10
+      ) || 1,
+      1
+    );
+
+  try {
+    /*
+     * 直接调用网站自己的接口。
+     *
+     * 不使用：
+     *
+     * /search/
+     * /vod/search
+     * 第三方聚合 API
+     *
+     * 只使用：
+     *
+     * /index.php/ajax/suggest
+     */
     const data =
       await httpGet(
-        BASE +
-          "/index.php/ajax/suggest",
+        SEARCH_URL,
         {
           mid: 1,
           wd: keyword,
+          limit: 500,
         }
       );
 
+    /*
+     * JSON
+     */
     const json =
-      typeof data === "string"
-        ? JSON.parse(data)
-        : data;
+      parseJsonSafely(data);
 
-    const list =
-      (json && json.list) || [];
+    if (json) {
+      const list =
+        extractSearchList(
+          json
+        );
 
-    return list.map(function (v) {
-      return makeItem(
-        v.id,
-        v.name,
-        v.pic,
-        ""
+      if (list.length) {
+        const items = [];
+        const seen = {};
+
+        for (
+          let i = 0;
+          i < list.length;
+          i++
+        ) {
+          const item =
+            makeSearchItem(
+              list[i]
+            );
+
+          if (!item) {
+            continue;
+          }
+
+          /*
+           * ID 去重。
+           *
+           * 防止网站接口同时返回
+           * 多个相同影片对象。
+           */
+          const key =
+            String(
+              item.id ||
+                item.link
+            );
+
+          if (seen[key]) {
+            continue;
+          }
+
+          seen[key] = true;
+
+          items.push(item);
+        }
+
+        /*
+         * 本地分页。
+         *
+         * 每页 20 个。
+         *
+         * 注意：
+         * 这不是伪造网站分页，
+         * 而是在接口已经返回的结果中分页。
+         */
+        const pageSize = 20;
+
+        const start =
+          (page - 1) *
+          pageSize;
+
+        return items.slice(
+          start,
+          start + pageSize
+        );
+      }
+    }
+
+    /*
+     * 如果接口返回的是 HTML，
+     * 使用 HTML 解析兜底。
+     */
+    const htmlItems =
+      parseSearchHtml(data);
+
+    if (htmlItems.length) {
+      const pageSize = 20;
+
+      const start =
+        (page - 1) *
+        pageSize;
+
+      return htmlItems.slice(
+        start,
+        start + pageSize
       );
-    });
+    }
+
+    return [];
   } catch (error) {
     console.error(
-      "[search] 失败:",
-      error.message || error
+      "[search] 网站原生搜索失败:",
+      error &&
+      error.message
+        ? error.message
+        : error
     );
 
-    throw error;
+    /*
+     * 搜索失败直接返回空数组。
+     *
+     * 不切换到其他第三方搜索源，
+     * 保证搜索始终基于网站自身接口。
+     */
+    return [];
   }
 }
 
@@ -571,7 +1227,9 @@ async function search(params = {}) {
  *
  * 因为 player_aaaa 可能包含嵌套对象 vod_data。
  */
-function extractPlayerObject(html) {
+function extractPlayerObject(
+  html
+) {
   if (!html) {
     return null;
   }
@@ -580,7 +1238,9 @@ function extractPlayerObject(html) {
     "var player_aaaa";
 
   const start =
-    html.indexOf(marker);
+    html.indexOf(
+      marker
+    );
 
   if (start < 0) {
     return null;
@@ -605,7 +1265,8 @@ function extractPlayerObject(html) {
     i < html.length;
     i++
   ) {
-    const ch = html[i];
+    const ch =
+      html[i];
 
     if (inString) {
       if (escaped) {
@@ -613,29 +1274,39 @@ function extractPlayerObject(html) {
         continue;
       }
 
-      if (ch === "\\") {
+      if (
+        ch === "\\"
+      ) {
         escaped = true;
         continue;
       }
 
-      if (ch === '"') {
+      if (
+        ch === '"'
+      ) {
         inString = false;
       }
 
       continue;
     }
 
-    if (ch === '"') {
+    if (
+      ch === '"'
+    ) {
       inString = true;
       continue;
     }
 
-    if (ch === "{") {
+    if (
+      ch === "{"
+    ) {
       depth++;
       continue;
     }
 
-    if (ch === "}") {
+    if (
+      ch === "}"
+    ) {
       depth--;
 
       if (depth === 0) {
@@ -665,23 +1336,11 @@ function extractPlayerObject(html) {
 }
 
 /*
- * 处理 player_aaaa.url
- *
- * MacCMS 常见：
- *
- * encrypt = 0
- *   明文
- *
- * encrypt = 1
- *   某些站点可能需要解码
- *
- * encrypt = 2 / 3
- *   某些资源会进行 base64 / 编码处理
- *
- * 这里不强行 base64，
- * 防止正常 URL 被错误转换。
+ * 标准化播放地址
  */
-function normalizePlayerUrl(url) {
+function normalizePlayerUrl(
+  url
+) {
   if (!url) {
     return "";
   }
@@ -707,22 +1366,16 @@ function normalizePlayerUrl(url) {
 /*
  * 判断 ps
  *
- * 重点：
- *
  * ps=1 → 必须解析
  * ps=0 → 直接播放
- *
- * 有些站返回字符串：
- *
- * "1"
- * "0"
- *
- * 所以统一转换。
  */
-function isParseLine(pj) {
+function isParseLine(
+  pj
+) {
   const ps =
     String(
-      pj && pj.ps != null
+      pj &&
+      pj.ps != null
         ? pj.ps
         : ""
     ).trim();
@@ -733,7 +1386,9 @@ function isParseLine(pj) {
 /*
  * 构造最终播放地址
  */
-function buildVideoUrl(pj) {
+function buildVideoUrl(
+  pj
+) {
   if (!pj) {
     return null;
   }
@@ -753,11 +1408,12 @@ function buildVideoUrl(pj) {
     ).trim();
 
   /*
-   * 最重要：
-   *
-   * ps=1 优先进入解析器。
+   * ps=1：
+   * 交给对应解析器。
    */
-  if (isParseLine(pj)) {
+  if (
+    isParseLine(pj)
+  ) {
     const parser =
       PARSE_MAP[from];
 
@@ -772,13 +1428,15 @@ function buildVideoUrl(pj) {
 
     return (
       parser +
-      encodeURIComponent(rawUrl)
+      encodeURIComponent(
+        rawUrl
+      )
     );
   }
 
   /*
    * ps=0：
-   * url 本身就是最终地址。
+   * url 本身就是最终播放地址。
    */
   if (
     /^https?:\/\//i.test(
@@ -789,14 +1447,18 @@ function buildVideoUrl(pj) {
   }
 
   /*
-   * 某些站点 ps 字段缺失。
-   * 如果没有 ps，但 from 有解析器，
-   * 且 URL 不是标准 HTTP 地址，则尝试解析。
+   * 某些站点 ps 缺失：
+   * 如果线路存在对应解析器，
+   * 尝试交给解析器。
    */
-  if (PARSE_MAP[from]) {
+  if (
+    PARSE_MAP[from]
+  ) {
     return (
       PARSE_MAP[from] +
-      encodeURIComponent(rawUrl)
+      encodeURIComponent(
+        rawUrl
+      )
     );
   }
 
@@ -878,16 +1540,21 @@ async function probePlay(
         pj.player ||
         pj.show ||
         "",
+
       from:
         pj.from || "",
+
       ps:
         pj.ps,
+
       url:
         normalizePlayerUrl(
           pj.url
         ),
+
       videoUrl:
         videoUrl,
+
       direct:
         !!videoUrl &&
         !isParseLine(pj),
@@ -906,17 +1573,20 @@ async function probePlay(
  * Detail
  * ========================================================= */
 
-async function loadDetail(link) {
+async function loadDetail(
+  link
+) {
   const key =
     String(link);
 
   try {
     /*
-     * Skill 要求 loadDetail(link)
-     * 接收的是字符串。
+     * loadDetail 接收字符串。
      */
     if (
-      key.indexOf("play:") === 0
+      key.indexOf(
+        "play:"
+      ) === 0
     ) {
       return await resolvePlay(
         key.slice(5)
@@ -1008,6 +1678,9 @@ async function loadVodDetail(
   const pm =
     html.match(
       /data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/
+    ) ||
+    html.match(
+      /data-original="([^"]+)"/
     );
 
   const poster =
@@ -1070,11 +1743,14 @@ async function loadVodDetail(
       groups[sid] = {};
     }
 
-    groups[sid][nid] = true;
+    groups[sid][nid] =
+      true;
   }
 
   const sids =
-    Object.keys(groups);
+    Object.keys(
+      groups
+    );
 
   if (!sids.length) {
     throw new Error(
@@ -1084,11 +1760,6 @@ async function loadVodDetail(
 
   /*
    * 选择可用线路
-   *
-   * 优先级：
-   *
-   * 1. 能生成 videoUrl 的直连线路
-   * 2. 能生成 videoUrl 的解析线路
    */
   let picked =
     null;
@@ -1101,9 +1772,6 @@ async function loadVodDetail(
     const sid =
       sids[i];
 
-    /*
-     * 不再假定第一集一定存在。
-     */
     const epNums =
       Object.keys(
         groups[sid]
@@ -1115,12 +1783,14 @@ async function loadVodDetail(
           }
         );
 
-    if (!epNums.length) {
+    if (
+      !epNums.length
+    ) {
       continue;
     }
 
     /*
-     * 优先尝试第一集。
+     * 不再固定 nid=1。
      */
     const firstNid =
       epNums[0];
@@ -1137,7 +1807,7 @@ async function loadVodDetail(
       info.videoUrl
     ) {
       /*
-       * 直连线路优先
+       * 直链优先。
        */
       if (info.direct) {
         picked = {
@@ -1150,7 +1820,7 @@ async function loadVodDetail(
       }
 
       /*
-       * 暂存解析线路
+       * 暂存解析线路。
        */
       if (!picked) {
         picked = {
@@ -1169,7 +1839,7 @@ async function loadVodDetail(
   }
 
   /*
-   * 当前选中的线路所有集数
+   * 当前选中线路的所有集数
    */
   const epNums =
     Object.keys(
@@ -1233,15 +1903,14 @@ async function loadVodDetail(
       : [];
 
   /*
-   * 返回标准 VideoItem
-   *
-   * Skill 中要求：
-   * episodeItems / relatedItems / videoUrl
+   * 标准 VideoItem
    */
   const item = {
     id: String(id),
 
     type: "url",
+
+    mediaType: "tv",
 
     title: title,
 
@@ -1268,17 +1937,15 @@ async function loadVodDetail(
       ),
   };
 
-  if (infos["更新"]) {
+  if (
+    infos["更新"]
+  ) {
     item.releaseDate =
       infos["更新"];
   }
 
   /*
-   * 如果第一集已经拿到了可播放地址，
-   * 电影可以直接提供 videoUrl。
-   *
-   * 对电视剧不直接指定第一集，
-   * 避免详情页把整部剧误认为第一集。
+   * 电影直接提供第一集播放地址。
    */
   if (
     isMovie &&
@@ -1313,7 +1980,9 @@ async function resolvePlay(
         "-"
       );
 
-    if (parts.length < 3) {
+    if (
+      parts.length < 3
+    ) {
       throw new Error(
         "播放参数格式错误: " +
           playKey
