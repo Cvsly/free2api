@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.2.5",
+  version: "1.3.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
+    "枫叶4K影院（maihaolian.com）：支持列表多页加载，包含热播榜、SVIP热映、红果短剧及各大影视频道",
   author: "Forward",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -35,12 +35,8 @@ WidgetMetadata = {
       functionName: "loadPlatform",
       cacheDuration: 3600,
       params: [
-        {
-          name: "platform",
-          title: "平台",
-          type: "constant",
-          value: "qq",
-        },
+        { name: "platform", title: "平台", type: "constant", value: "qq" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -49,12 +45,8 @@ WidgetMetadata = {
       functionName: "loadPlatform",
       cacheDuration: 3600,
       params: [
-        {
-          name: "platform",
-          title: "平台",
-          type: "constant",
-          value: "youku",
-        },
+        { name: "platform", title: "平台", type: "constant", value: "youku" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -63,12 +55,8 @@ WidgetMetadata = {
       functionName: "loadPlatform",
       cacheDuration: 3600,
       params: [
-        {
-          name: "platform",
-          title: "平台",
-          type: "constant",
-          value: "bli",
-        },
+        { name: "platform", title: "平台", type: "constant", value: "bli" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -77,12 +65,8 @@ WidgetMetadata = {
       functionName: "loadPlatform",
       cacheDuration: 3600,
       params: [
-        {
-          name: "platform",
-          title: "平台",
-          type: "constant",
-          value: "duanju",
-        },
+        { name: "platform", title: "平台", type: "constant", value: "duanju" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -91,12 +75,8 @@ WidgetMetadata = {
       functionName: "loadHomeSection",
       cacheDuration: 1800,
       params: [
-        {
-          name: "section",
-          title: "版块",
-          type: "constant",
-          value: "电视剧",
-        },
+        { name: "section", title: "版块", type: "constant", value: "电视剧" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -105,12 +85,8 @@ WidgetMetadata = {
       functionName: "loadHomeSection",
       cacheDuration: 1800,
       params: [
-        {
-          name: "section",
-          title: "版块",
-          type: "constant",
-          value: "电影",
-        },
+        { name: "section", title: "版块", type: "constant", value: "电影" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -119,12 +95,8 @@ WidgetMetadata = {
       functionName: "loadHomeSection",
       cacheDuration: 1800,
       params: [
-        {
-          name: "section",
-          title: "版块",
-          type: "constant",
-          value: "动漫",
-        },
+        { name: "section", title: "版块", type: "constant", value: "动漫" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -133,12 +105,8 @@ WidgetMetadata = {
       functionName: "loadHomeSection",
       cacheDuration: 1800,
       params: [
-        {
-          name: "section",
-          title: "版块",
-          type: "constant",
-          value: "综艺",
-        },
+        { name: "section", title: "版块", type: "constant", value: "综艺" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -147,12 +115,8 @@ WidgetMetadata = {
       functionName: "loadHomeSection",
       cacheDuration: 1800,
       params: [
-        {
-          name: "section",
-          title: "版块",
-          type: "constant",
-          value: "热门短剧",
-        },
+        { name: "section", title: "版块", type: "constant", value: "热门短剧" },
+        { name: "page", title: "页码", type: "page" },
       ],
     },
     {
@@ -169,11 +133,8 @@ WidgetMetadata = {
     title: "搜索",
     functionName: "search",
     params: [
-      {
-        name: "keyword",
-        title: "关键词",
-        type: "input",
-      },
+      { name: "keyword", title: "关键词", type: "input" },
+      { name: "page", title: "页码", type: "page" },
     ],
   },
 };
@@ -197,9 +158,14 @@ const PARSE_MAP = {
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 
-/*
- * HTTP GET
- */
+const SECTION_TYPE_MAP = {
+  电视剧: 2,
+  电影: 1,
+  动漫: 4,
+  综艺: 3,
+  热门短剧: 5,
+};
+
 async function httpGet(url, params) {
   const opt = {
     headers: {
@@ -216,12 +182,8 @@ async function httpGet(url, params) {
   return res.data;
 }
 
-/*
- * HTML decode
- */
 function decodeHtml(s) {
   if (!s) return "";
-
   return String(s)
     .replace(/&amp;/g, "&")
     .replace(/&nbsp;/g, " ")
@@ -231,16 +193,10 @@ function decodeHtml(s) {
     .replace(/&gt;/g, ">");
 }
 
-/*
- * 去 HTML 标签
- */
 function stripTags(s) {
   return decodeHtml(String(s || "").replace(/<[^>]+>/g, "")).trim();
 }
 
-/*
- * 创建 VideoItem
- */
 function makeItem(id, title, poster, remark) {
   const item = {
     id: String(id),
@@ -260,9 +216,6 @@ function makeItem(id, title, poster, remark) {
   return item;
 }
 
-/*
- * 解析站点通用卡片
- */
 function parseCards(html) {
   const items = [];
   const seen = {};
@@ -295,9 +248,6 @@ function parseCards(html) {
   return items;
 }
 
-/*
- * 首页版块
- */
 function sliceHomeSection(html, section) {
   const start = html.indexOf(">" + section + "</h2>");
 
@@ -311,9 +261,6 @@ function sliceHomeSection(html, section) {
   return next > 0 ? rest.slice(0, next) : rest;
 }
 
-/*
- * 热播榜
- */
 async function loadBanner(params = {}) {
   try {
     const html = await httpGet(BASE + "/");
@@ -379,30 +326,40 @@ async function loadBanner(params = {}) {
   }
 }
 
-/*
- * 平台与短剧专区路由
- */
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
   bli: "/label/bli.html",
 };
 
+/*
+ * 支持分页的平台专区解析
+ */
 async function loadPlatform(params = {}) {
   try {
     const platform = params.platform || "qq";
+    const page = parseInt(params.page || "1", 10);
 
-    // 遇到短剧直接复用首页“热门短剧”数据解析，保证 100% 成功率
     if (platform === "duanju") {
-      return await loadHomeSection({ section: "热门短剧" });
+      const path = page > 1 ? `/type/5-${page}.html` : "/type/5.html";
+      try {
+        const html = await httpGet(BASE + path);
+        const items = parseCards(html);
+        if (items.length) return items;
+      } catch (e) {}
+
+      if (page === 1) {
+        return await loadHomeSection({ section: "热门短剧" });
+      }
+      return [];
     }
 
-    const path = PLATFORM_URLS[platform];
-
-    if (!path) {
+    const basePath = PLATFORM_URLS[platform];
+    if (!basePath) {
       throw new Error("未知平台: " + platform);
     }
 
+    const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
     const html = await httpGet(BASE + path);
     const items = parseCards(html);
 
@@ -418,14 +375,26 @@ async function loadPlatform(params = {}) {
 }
 
 /*
- * 首页版块
+ * 支持分页的首页/分类版块解析
  */
 async function loadHomeSection(params = {}) {
   try {
     const section = params.section || "电视剧";
-    const html = await httpGet(BASE + "/");
-    const slice = sliceHomeSection(html, section);
-    const items = parseCards(slice);
+    const page = parseInt(params.page || "1", 10);
+
+    // 第 1 页优先抓取首页快捷版块
+    if (page === 1) {
+      const html = await httpGet(BASE + "/");
+      const slice = sliceHomeSection(html, section);
+      const items = parseCards(slice);
+      if (items.length) return items;
+    }
+
+    // 第 2 页及以后（或首页未找到时），自动按分类 ID 翻页
+    const typeId = SECTION_TYPE_MAP[section] || 2;
+    const path = `/type/${typeId}-${page}.html`;
+    const html = await httpGet(BASE + path);
+    const items = parseCards(html);
 
     if (!items.length) {
       throw new Error("版块为空: " + section);
@@ -438,12 +407,10 @@ async function loadHomeSection(params = {}) {
   }
 }
 
-/*
- * 搜索
- */
 async function search(params = {}) {
   try {
     const keyword = (params.keyword || "").trim();
+    const page = parseInt(params.page || "1", 10);
 
     if (!keyword) {
       return [];
@@ -452,6 +419,7 @@ async function search(params = {}) {
     const data = await httpGet(BASE + "/index.php/ajax/suggest", {
       mid: 1,
       wd: keyword,
+      page: page,
     });
 
     const json = typeof data === "string" ? JSON.parse(data) : data;
@@ -466,27 +434,14 @@ async function search(params = {}) {
   }
 }
 
-/* =========================================================
- * 播放相关核心代码
- * ========================================================= */
-
 function extractPlayerObject(html) {
-  if (!html) {
-    return null;
-  }
-
+  if (!html) return null;
   const marker = "var player_aaaa";
   const start = html.indexOf(marker);
-
-  if (start < 0) {
-    return null;
-  }
+  if (start < 0) return null;
 
   const braceStart = html.indexOf("{", start);
-
-  if (braceStart < 0) {
-    return null;
-  }
+  if (braceStart < 0) return null;
 
   let depth = 0;
   let inString = false;
@@ -500,16 +455,13 @@ function extractPlayerObject(html) {
         escaped = false;
         continue;
       }
-
       if (ch === "\\") {
         escaped = true;
         continue;
       }
-
       if (ch === '"') {
         inString = false;
       }
-
       continue;
     }
 
@@ -525,14 +477,11 @@ function extractPlayerObject(html) {
 
     if (ch === "}") {
       depth--;
-
       if (depth === 0) {
         const jsonText = html.slice(braceStart, i + 1);
-
         try {
           return JSON.parse(jsonText);
         } catch (e) {
-          console.error("[player] JSON解析失败:", e.message || e);
           return null;
         }
       }
@@ -543,14 +492,10 @@ function extractPlayerObject(html) {
 }
 
 function normalizePlayerUrl(url) {
-  if (!url) {
-    return "";
-  }
-
+  if (!url) return "";
   let value = String(url).trim();
   value = value.replace(/\\\//g, "/");
   value = value.replace(/&amp;/g, "&");
-
   return value;
 }
 
@@ -560,26 +505,15 @@ function isParseLine(pj) {
 }
 
 function buildVideoUrl(pj) {
-  if (!pj) {
-    return null;
-  }
-
+  if (!pj) return null;
   const rawUrl = normalizePlayerUrl(pj.url);
-
-  if (!rawUrl) {
-    return null;
-  }
+  if (!rawUrl) return null;
 
   const from = String(pj.from || "").trim();
 
   if (isParseLine(pj)) {
     const parser = PARSE_MAP[from];
-
-    if (!parser) {
-      console.error("[buildVideoUrl] 未配置解析器:", from);
-      return null;
-    }
-
+    if (!parser) return null;
     return parser + encodeURIComponent(rawUrl);
   }
 
@@ -597,28 +531,14 @@ function buildVideoUrl(pj) {
 async function getPlayerData(id, sid, nid) {
   const playUrl = BASE + "/play/" + id + "-" + sid + "-" + nid + ".html";
   const html = await httpGet(playUrl);
-
-  if (!html) {
-    return null;
-  }
-
-  const pj = extractPlayerObject(html);
-
-  if (!pj) {
-    console.error("[getPlayerData] 未找到 player_aaaa:", playUrl);
-    return null;
-  }
-
-  return pj;
+  if (!html) return null;
+  return extractPlayerObject(html);
 }
 
 async function probePlay(id, sid, nid) {
   try {
     const pj = await getPlayerData(id, sid, nid);
-
-    if (!pj) {
-      return null;
-    }
+    if (!pj) return null;
 
     const videoUrl = buildVideoUrl(pj);
 
@@ -631,14 +551,9 @@ async function probePlay(id, sid, nid) {
       direct: !!videoUrl && !isParseLine(pj),
     };
   } catch (e) {
-    console.error("[probePlay] 失败:", e.message || e);
     return null;
   }
 }
-
-/* =========================================================
- * Detail
- * ========================================================= */
 
 async function loadDetail(link) {
   const key = String(link);
@@ -780,10 +695,6 @@ async function loadVodDetail(id, link) {
   return item;
 }
 
-/* =========================================================
- * 单集播放
- * ========================================================= */
-
 async function resolvePlay(playKey) {
   try {
     const parts = String(playKey).split("-");
@@ -830,10 +741,6 @@ async function resolvePlay(playKey) {
   }
 }
 
-/* =========================================================
- * 聚合搜索核心逻辑 (stream 模块实现)
- * ========================================================= */
-
 function stripTitleMeta(text) {
   return String(text || "")
     .replace(/[\(（][^\)）]*[\)）]/g, "")
@@ -864,7 +771,6 @@ async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
 
-    // 1. 详情页播放回调，直接获取该集视频链接
     if (linkStr.indexOf("play:") === 0) {
       const playItem = await resolvePlay(linkStr.slice(5));
 
@@ -881,7 +787,6 @@ async function loadResource(params = {}) {
       return [];
     }
 
-    // 2. 聚合搜索模式
     const multiSource = params.multiSource;
     const rawTitle = String(params.seriesName || params.title || "").trim();
     const wantEpisode = parseInt(params.episode, 10) || 0;
@@ -892,14 +797,12 @@ async function loadResource(params = {}) {
 
     const wantBaseNorm = normalizeName(stripTitleMeta(rawTitle));
 
-    // 执行站内搜索
     const searchItems = await search({ keyword: rawTitle });
 
     if (!searchItems.length) {
       return [];
     }
 
-    // 评分筛选最佳结果
     let best = null;
     let bestScore = -1;
 
@@ -916,14 +819,12 @@ async function loadResource(params = {}) {
       best = searchItems[0];
     }
 
-    // 提取选定影视的详情
     const vodDetail = await loadVodDetail(best.id, "detail:" + best.id);
 
     if (!vodDetail || !vodDetail.episodeItems || !vodDetail.episodeItems.length) {
       return [];
     }
 
-    // 集数精准映射匹配逻辑
     const epList = vodDetail.episodeItems;
     let targetEp = null;
 
@@ -944,7 +845,6 @@ async function loadResource(params = {}) {
       targetEp = epList[0];
     }
 
-    // 解析出目标集的直链
     const playRes = await resolvePlay(targetEp.link.replace("play:", ""));
 
     if (!playRes || !playRes.videoUrl) {
