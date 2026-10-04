@@ -4,7 +4,7 @@ WidgetMetadata = {
   version: "1.2.3",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
+    "枫叶4K影院（maihaolian.com）：腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
