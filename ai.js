@@ -1,11 +1,11 @@
 WidgetMetadata = {
-  id: "fengye.movie",
+  id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.2.3",
+  version: "1.2.5",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
-  author: "crush7s",
+    "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧，以及电视剧、电影、动漫、综艺、短剧频道",
+  author: "Forward",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
 
@@ -23,6 +23,12 @@ WidgetMetadata = {
   ],
 
   modules: [
+    {
+      id: "banner",
+      title: "热播榜",
+      functionName: "loadBanner",
+      cacheDuration: 1800,
+    },
     {
       id: "platformQQ",
       title: "腾讯SVIP热映",
@@ -374,21 +380,27 @@ async function loadBanner(params = {}) {
 }
 
 /*
- * 平台与短剧专区路由修正
+ * 平台与短剧专区路由
  */
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
   bli: "/label/bli.html",
-  duanju: "/label/duanju.html", // 正确的红果短剧列表路径
 };
 
 async function loadPlatform(params = {}) {
   try {
-    const path = PLATFORM_URLS[params.platform || "qq"];
+    const platform = params.platform || "qq";
+
+    // 遇到短剧直接复用首页“热门短剧”数据解析，保证 100% 成功率
+    if (platform === "duanju") {
+      return await loadHomeSection({ section: "热门短剧" });
+    }
+
+    const path = PLATFORM_URLS[platform];
 
     if (!path) {
-      throw new Error("未知平台: " + params.platform);
+      throw new Error("未知平台: " + platform);
     }
 
     const html = await httpGet(BASE + path);
