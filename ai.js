@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "forward.maihaolian",
   title: "枫叶影院",
-  version: "1.2.0",
+  version: "1.4.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：热播榜、腾讯/优酷/B站SVIP热映、红果短剧；电影/电视剧/动漫/综艺/短剧频道支持子分类筛选与下拉分页加载，内置流媒体聚合搜索支持",
+    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，内置流媒体聚合搜索支持",
   author: "Forward",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -30,36 +30,48 @@ WidgetMetadata = {
       functionName: "loadBanner",
       cacheDuration: 1800,
     },
-    // ===== 平台专区（/label/*.html 榜单页，静态榜单）=====
+    // ===== 平台专区 =====
     {
       id: "platformQQ",
       title: "腾讯SVIP热映",
       functionName: "loadPlatform",
       cacheDuration: 3600,
-      params: [{ name: "platform", title: "平台", type: "constant", value: "qq" }],
+      params: [
+        { name: "platform", title: "平台", type: "constant", value: "qq" },
+        { name: "page", title: "页码", type: "page" },
+      ],
     },
     {
       id: "platformYouku",
       title: "优酷SVIP热映",
       functionName: "loadPlatform",
       cacheDuration: 3600,
-      params: [{ name: "platform", title: "平台", type: "constant", value: "youku" }],
+      params: [
+        { name: "platform", title: "平台", type: "constant", value: "youku" },
+        { name: "page", title: "页码", type: "page" },
+      ],
     },
     {
       id: "platformBili",
       title: "B站SVIP热映",
       functionName: "loadPlatform",
       cacheDuration: 3600,
-      params: [{ name: "platform", title: "平台", type: "constant", value: "bli" }],
+      params: [
+        { name: "platform", title: "平台", type: "constant", value: "bli" },
+        { name: "page", title: "页码", type: "page" },
+      ],
     },
     {
       id: "platformDuanju",
       title: "红果短剧",
       functionName: "loadPlatform",
       cacheDuration: 3600,
-      params: [{ name: "platform", title: "平台", type: "constant", value: "duanju" }],
+      params: [
+        { name: "platform", title: "平台", type: "constant", value: "duanju" },
+        { name: "page", title: "页码", type: "page" },
+      ],
     },
-    // ===== 频道（/index.php/ajax/data 接口，对齐网站导航结构，支持下拉分页）=====
+    // ===== 频道列表（支持分类与“更新时间”排序） =====
     {
       id: "vodMovie",
       title: "电影",
@@ -83,6 +95,17 @@ WidgetMetadata = {
             { title: "纪录片", value: "20" },
           ],
         },
+        {
+          name: "by",
+          title: "排序",
+          type: "enumeration",
+          value: "time",
+          enumOptions: [
+            { title: "最新更新", value: "time" },
+            { title: "热播排行", value: "hits" },
+            { title: "评分最高", value: "score" },
+          ],
+        },
         { name: "page", title: "页码", type: "page" },
       ],
     },
@@ -102,6 +125,17 @@ WidgetMetadata = {
             { title: "国产剧", value: "13" },
             { title: "日韩剧", value: "15" },
             { title: "海外剧", value: "16" },
+          ],
+        },
+        {
+          name: "by",
+          title: "排序",
+          type: "enumeration",
+          value: "time",
+          enumOptions: [
+            { title: "最新更新", value: "time" },
+            { title: "热播排行", value: "hits" },
+            { title: "评分最高", value: "score" },
           ],
         },
         { name: "page", title: "页码", type: "page" },
@@ -124,6 +158,17 @@ WidgetMetadata = {
             { title: "日韩动漫", value: "26" },
           ],
         },
+        {
+          name: "by",
+          title: "排序",
+          type: "enumeration",
+          value: "time",
+          enumOptions: [
+            { title: "最新更新", value: "time" },
+            { title: "热播排行", value: "hits" },
+            { title: "评分最高", value: "score" },
+          ],
+        },
         { name: "page", title: "页码", type: "page" },
       ],
     },
@@ -144,6 +189,17 @@ WidgetMetadata = {
             { title: "日韩综艺", value: "22" },
           ],
         },
+        {
+          name: "by",
+          title: "排序",
+          type: "enumeration",
+          value: "time",
+          enumOptions: [
+            { title: "最新更新", value: "time" },
+            { title: "热播排行", value: "hits" },
+            { title: "评分最高", value: "score" },
+          ],
+        },
         { name: "page", title: "页码", type: "page" },
       ],
     },
@@ -154,6 +210,16 @@ WidgetMetadata = {
       cacheDuration: 1800,
       params: [
         { name: "tid", title: "分类", type: "constant", value: "5" },
+        {
+          name: "by",
+          title: "排序",
+          type: "enumeration",
+          value: "time",
+          enumOptions: [
+            { title: "最新更新", value: "time" },
+            { title: "热播排行", value: "hits" },
+          ],
+        },
         { name: "page", title: "页码", type: "page" },
       ],
     },
@@ -171,7 +237,10 @@ WidgetMetadata = {
   search: {
     title: "搜索",
     functionName: "search",
-    params: [{ name: "keyword", title: "关键词", type: "input" }],
+    params: [
+      { name: "keyword", title: "关键词", type: "input" },
+      { name: "page", title: "页码", type: "page" },
+    ],
   },
 };
 
@@ -292,18 +361,25 @@ async function apiUid() {
   return uid;
 }
 
+/*
+ * 支持按更新时间 (by=time) 排序的频道数据接口
+ */
 async function loadVodList(params = {}) {
   try {
     const page = Number(params.page || 1);
+    const by = params.by || "time"; // 默认按更新时间排序
     const time = Math.floor(Date.now() / 1000);
     const uid = await apiUid();
+    
     const data = await httpPost(BASE + "/index.php/ajax/data", {
       mid: 1,
       tid: params.tid || "",
       page: page,
+      by: by, // 增加 by 排序字段 (time:更新时间, hits:点击量, score:评分)
       time: time,
       key: md5("DS" + time + uid),
     });
+    
     const json = typeof data === "string" ? JSON.parse(data) : data;
     if (!json || Number(json.code) !== 1) {
       throw new Error("接口返回异常: " + (json && json.msg ? json.msg : "空响应"));
@@ -354,10 +430,15 @@ async function loadBanner(params = {}) {
 
 async function loadPlatform(params = {}) {
   try {
-    const path = PLATFORM_URLS[params.platform || "qq"];
-    if (!path) throw new Error("未知平台: " + params.platform);
+    const platform = params.platform || "qq";
+    const page = parseInt(params.page || "1", 10);
+    const basePath = PLATFORM_URLS[platform];
+    if (!basePath) throw new Error("未知平台: " + platform);
+
+    const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
     const html = await httpGet(BASE + path);
     const items = parseCards(html);
+
     if (!items.length) throw new Error("榜单为空");
     return items;
   } catch (error) {
@@ -369,8 +450,14 @@ async function loadPlatform(params = {}) {
 async function search(params = {}) {
   try {
     const keyword = (params.keyword || "").trim();
+    const page = parseInt(params.page || "1", 10);
     if (!keyword) return [];
-    const data = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword });
+
+    const data = await httpGet(BASE + "/index.php/ajax/suggest", {
+      mid: 1,
+      wd: keyword,
+      page: page,
+    });
     const json = typeof data === "string" ? JSON.parse(data) : data;
     const list = (json && json.list) || [];
     return list.map(function (v) {
@@ -507,8 +594,6 @@ async function resolvePlay(playKey) {
   };
 }
 
-// ===== 聚合搜索优化核心功能函数 =====
-
 function stripTitleMeta(text) {
   return String(text || "")
     .replace(/[\(（][^\)）]*[\)）]/g, "")
@@ -534,14 +619,10 @@ function scoreMatch(rawTitle, wantBaseNorm) {
   return -1;
 }
 
-/*
- * App 调用的聚合搜索核心逻辑：支持直接提取播放地址与剧集组装
- */
 async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
 
-    // 1. 如果包含直接播放的 play 标记，立即解析返回
     if (linkStr.indexOf("play:") === 0) {
       const playItem = await resolvePlay(linkStr.slice(5));
       if (playItem && playItem.videoUrl) {
@@ -638,7 +719,6 @@ async function loadResource(params = {}) {
   }
 }
 
-// ===== MD5 加密实现 =====
 function md5(s) {
   return hex(md51(s));
 }
