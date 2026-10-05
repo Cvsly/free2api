@@ -1,11 +1,11 @@
 WidgetMetadata = {
-  id: "forward.maihaolian",
+  id: "fengye.movie",
   title: "枫叶影院",
   version: "1.4.0",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，内置流媒体聚合搜索支持",
-  author: "Forward",
+  author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
 
@@ -23,13 +23,6 @@ WidgetMetadata = {
   ],
 
   modules: [
-    // ===== 首页 =====
-    {
-      id: "banner",
-      title: "热播榜",
-      functionName: "loadBanner",
-      cacheDuration: 1800,
-    },
     // ===== 平台专区 =====
     {
       id: "platformQQ",
@@ -58,16 +51,6 @@ WidgetMetadata = {
       cacheDuration: 3600,
       params: [
         { name: "platform", title: "平台", type: "constant", value: "bli" },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "platformDuanju",
-      title: "红果短剧",
-      functionName: "loadPlatform",
-      cacheDuration: 3600,
-      params: [
-        { name: "platform", title: "平台", type: "constant", value: "duanju" },
         { name: "page", title: "页码", type: "page" },
       ],
     },
