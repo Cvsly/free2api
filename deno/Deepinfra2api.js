@@ -33,8 +33,31 @@ export default {
     }
 
     try {
+      // Enforce a maximum request body size to prevent memory exhaustion DoS
+      const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
+      const contentLength = request.headers.get("Content-Length");
+      if (contentLength && Number(contentLength) > MAX_BODY_SIZE) {
+        return new Response(JSON.stringify({ error: "Request body too large" }), {
+          status: 413,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
+      }
+
       // Clone request body
-      const body = await request.json();
+      const rawBody = await request.text();
+      if (rawBody.length > MAX_BODY_SIZE) {
+        return new Response(JSON.stringify({ error: "Request body too large" }), {
+          status: 413,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
+      }
+      const body = JSON.parse(rawBody);
 
       // Construct new request headers
       const headers = new Headers({
