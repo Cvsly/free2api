@@ -1,14 +1,13 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.4.0",
+  version: "1.5.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，内置流媒体聚合搜索支持",
+    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路播放支持，内置流媒体聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
-
   globalParams: [
     {
       name: "multiSource",
@@ -21,7 +20,6 @@ WidgetMetadata = {
       ],
     },
   ],
-
   modules: [
     // ===== 平台专区 =====
     {
@@ -216,7 +214,6 @@ WidgetMetadata = {
       params: [],
     },
   ],
-
   search: {
     title: "搜索",
     functionName: "search",
@@ -230,14 +227,12 @@ WidgetMetadata = {
 const BASE = "https://maihaolian.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
 const PLATFORM_URLS = {
   qq: "/label/qq.html",
   youku: "/label/youku.html",
   bli: "/label/bli.html",
   duanju: "/label/duanju-1.html",
 };
-
 const PARSE_MAP = {
   co: "https://zzrs.mfdyvip.com/player/?url=",
   BBA: "https://zzrs.mfdyvip.com/player/?url=",
@@ -250,8 +245,9 @@ const PARSE_MAP = {
   JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
-
 const API_UID_FALLBACK = "DCC147D11943AF75";
+// 聚合搜索最多返回线路数，避免请求过多
+const MAX_AGG_LINES = 3;
 
 async function httpGet(url, params) {
   const opt = { headers: { "User-Agent": UA, Referer: BASE + "/" } };
@@ -417,11 +413,9 @@ async function loadPlatform(params = {}) {
     const page = parseInt(params.page || "1", 10);
     const basePath = PLATFORM_URLS[platform];
     if (!basePath) throw new Error("未知平台: " + platform);
-
     const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
     const html = await httpGet(BASE + path);
     const items = parseCards(html);
-
     if (!items.length) throw new Error("榜单为空");
     return items;
   } catch (error) {
@@ -435,7 +429,6 @@ async function search(params = {}) {
     const keyword = (params.keyword || "").trim();
     const page = parseInt(params.page || "1", 10);
     if (!keyword) return [];
-
     const data = await httpGet(BASE + "/index.php/ajax/suggest", {
       mid: 1,
       wd: keyword,
@@ -483,6 +476,7 @@ async function loadVodDetail(id, link) {
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
 
+  // 解析所有线路和集数
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -492,36 +486,41 @@ async function loadVodDetail(id, link) {
     if (!groups[sid]) groups[sid] = {};
     groups[sid][nid] = true;
   }
+
   const sids = Object.keys(groups);
   if (!sids.length) throw new Error("未找到播放线路");
 
-  let picked = null;
+  // ===== 优化：探测所有可用线路，生成全线路集数列表 =====
+  const episodeItems = [];
+  let lineCount = 0;
   for (let i = 0; i < sids.length; i++) {
     const sid = sids[i];
+    // 探测线路可用性
     const info = await probePlay(id, sid, 1);
-    if (info && info.direct) {
-      picked = { sid: sid, name: info.name };
-      break;
-    }
-    if (info && !picked) picked = { sid: sid, name: info.name };
-  }
-  if (!picked) throw new Error("线路探测失败");
+    if (!info) continue;
 
-  const epNums = Object.keys(groups[picked.sid])
-    .map(Number)
-    .sort(function (a, b) {
-      return a - b;
+    lineCount++;
+    const lineName = info.name || `线路${lineCount}`;
+    const epNums = Object.keys(groups[sid])
+      .map(Number)
+      .sort((a, b) => a - b);
+    if (!epNums.length) continue;
+
+    const isMovie = epNums.length === 1;
+    // 生成该线路所有集数，标题带线路名
+    epNums.forEach(n => {
+      episodeItems.push({
+        id: `play:${id}-${sid}-${n}`,
+        type: "url",
+        title: isMovie ? `[${lineName}] 正片` : `[${lineName}] 第${n}集`,
+        link: `play:${id}-${sid}-${n}`,
+      });
     });
-  const isMovie = epNums.length === 1;
-  const episodeItems = epNums.map(function (n) {
-    return {
-      id: "play:" + id + "-" + picked.sid + "-" + n,
-      type: "url",
-      title: isMovie ? "正片" : "第" + n + "集",
-      link: "play:" + id + "-" + picked.sid + "-" + n,
-    };
-  });
+  }
 
+  if (!episodeItems.length) throw new Error("无可用播放线路");
+
+  // 相关推荐
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
 
@@ -534,7 +533,7 @@ async function loadVodDetail(id, link) {
     description: description,
     episodeItems: episodeItems,
     relatedItems: relatedItems,
-    durationText: (infos["连载"] || "") + (picked.name ? " · " + picked.name : ""),
+    durationText: (infos["连载"] || "") + ` · 共${lineCount}条线路`,
   };
   if (infos["更新"]) item.releaseDate = infos["更新"];
   return item;
@@ -596,7 +595,6 @@ function normalizeName(text) {
 function scoreMatch(rawTitle, wantBaseNorm) {
   const rawBase = stripTitleMeta(rawTitle);
   const baseNorm = normalizeName(rawBase);
-
   if (baseNorm === wantBaseNorm) return 300;
   if (baseNorm.indexOf(wantBaseNorm) >= 0 || wantBaseNorm.indexOf(baseNorm) >= 0) return 150;
   return -1;
@@ -605,7 +603,7 @@ function scoreMatch(rawTitle, wantBaseNorm) {
 async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
-
+    // 直接播放链接场景
     if (linkStr.indexOf("play:") === 0) {
       const playItem = await resolvePlay(linkStr.slice(5));
       if (playItem && playItem.videoUrl) {
@@ -631,14 +629,12 @@ async function loadResource(params = {}) {
 
     const wantBaseNorm = normalizeName(stripTitleMeta(rawTitle));
     const searchItems = await search({ keyword: rawTitle });
-
     if (!searchItems.length) {
       return [];
     }
 
     let best = null;
     let bestScore = -1;
-
     for (let i = 0; i < searchItems.length; i++) {
       const score = scoreMatch(searchItems[i].title, wantBaseNorm);
       if (score > bestScore) {
@@ -646,7 +642,6 @@ async function loadResource(params = {}) {
         best = searchItems[i];
       }
     }
-
     if (!best || bestScore < 0) {
       best = searchItems[0];
     }
@@ -656,56 +651,84 @@ async function loadResource(params = {}) {
       return [];
     }
 
-    const epList = vodDetail.episodeItems;
-    let targetEp = null;
+    // 过滤出真正的播放集数（排除占位项）
+    const allEpisodes = vodDetail.episodeItems.filter(ep => ep.link && ep.link.startsWith("play:"));
+    if (!allEpisodes.length) return [];
+
+    // ===== 优化：匹配多条线路的目标集数，返回多播放源 =====
+    const targetEps = [];
+    const seenLines = new Set();
 
     if (wantEpisode > 0) {
-      targetEp = epList.find((e) => {
-        const epNum = parseInt((e.title.match(/\d+/) || [])[0], 10);
-        return epNum === wantEpisode;
+      // 指定集数：找所有线路中对应该集的项
+      allEpisodes.forEach(ep => {
+        const epNum = parseInt((ep.title.match(/\d+/) || [])[0], 10);
+        const parts = ep.link.replace("play:", "").split("-");
+        const sid = parts[1];
+        if (epNum === wantEpisode && !seenLines.has(sid)) {
+          seenLines.add(sid);
+          targetEps.push(ep);
+        }
       });
-
-      if (!targetEp && wantEpisode <= epList.length) {
-        targetEp = epList[wantEpisode - 1];
+      // 精确匹配不足时，降级取前N条
+      if (targetEps.length === 0) {
+        allEpisodes.forEach(ep => {
+          const parts = ep.link.replace("play:", "").split("-");
+          const sid = parts[1];
+          if (!seenLines.has(sid)) {
+            seenLines.add(sid);
+            targetEps.push(ep);
+          }
+        });
       }
-
-      if (!targetEp) return [];
     } else {
-      targetEp = epList[0];
+      // 未指定集数：每条线路取第一集
+      allEpisodes.forEach(ep => {
+        const parts = ep.link.replace("play:", "").split("-");
+        const sid = parts[1];
+        if (!seenLines.has(sid)) {
+          seenLines.add(sid);
+          targetEps.push(ep);
+        }
+      });
     }
 
-    const playRes = await resolvePlay(targetEp.link.replace("play:", ""));
-    if (!playRes || !playRes.videoUrl) {
-      return [];
+    // 限制最大返回线路数，避免请求超时
+    const limitedEps = targetEps.slice(0, MAX_AGG_LINES);
+    const sources = [];
+
+    for (let i = 0; i < limitedEps.length; i++) {
+      const ep = limitedEps[i];
+      const playRes = await resolvePlay(ep.link.replace("play:", ""));
+      if (playRes && playRes.videoUrl) {
+        sources.push({
+          name: `枫叶影院 - 线路${i + 1}`,
+          description: ep.title,
+          url: playRes.videoUrl,
+          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+        });
+      }
     }
 
-    const episodes =
-      wantEpisode === 0
-        ? epList.map((e) => ({
-            title: e.title,
-            link: e.link,
-          }))
-        : [];
+    // 全集数列表附加到第一个源（仅剧集且有多集时）
+    if (sources.length > 0 && wantEpisode === 0 && allEpisodes.length > 1) {
+      sources[0].episodeItems = allEpisodes.map(e => ({
+        title: e.title,
+        link: e.link,
+      }));
+    }
 
-    return [
-      {
-        name: "枫叶影院",
-        description: targetEp.title,
-        url: playRes.videoUrl,
-        episodeItems: episodes.length > 1 ? episodes : undefined,
-        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-      },
-    ];
+    return sources;
   } catch (error) {
     console.error("[loadResource] 聚合搜索失败:", error.message || error);
     return [];
   }
 }
 
+// ===== MD5 签名算法（保留原版） =====
 function md5(s) {
   return hex(md51(s));
 }
-
 function md51(s) {
   var n = s.length,
     state = [1732584193, -271733879, -1732584194, 271733878],
@@ -725,7 +748,6 @@ function md51(s) {
   md5cycle(state, tail);
   return state;
 }
-
 function md5cycle(x, k) {
   var a = x[0],
     b = x[1],
@@ -800,7 +822,6 @@ function md5cycle(x, k) {
   x[2] = add32(c, x[2]);
   x[3] = add32(d, x[3]);
 }
-
 function cmn(q, a, b, x, s, t) {
   a = add32(add32(a, q), add32(x, t));
   return add32((a << s) | (a >>> (32 - s)), b);
@@ -817,7 +838,6 @@ function hh(a, b, c, d, x, s, t) {
 function ii(a, b, c, d, x, s, t) {
   return cmn(c ^ (b | ~d), a, b, x, s, t);
 }
-
 function md5blk(s) {
   var md5blks = [],
     i;
@@ -827,7 +847,6 @@ function md5blk(s) {
   }
   return md5blks;
 }
-
 var hex_chr = "0123456789abcdef".split("");
 function rhex(n) {
   var s = "",
