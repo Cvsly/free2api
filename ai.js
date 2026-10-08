@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.6.0",
+  version: "1.6.1",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路高清播放，内置流媒体聚合搜索",
@@ -424,7 +424,7 @@ async function loadDetail(link) {
 
 /**
  * 解析详情页所有线路信息
- * 返回 { sid: 线路id, name: 线路名, eps: [nid] } 数组
+ * 返回 { sid: 线路id, name: 原始线路名, eps: [nid], direct: boolean } 数组
  */
 async function getAllLines(id) {
   const html = await httpGet(BASE + "/detail/" + id + ".html");
@@ -449,7 +449,7 @@ async function getAllLines(id) {
     const eps = groups[sid].sort((a, b) => a - b);
     lines.push({
       sid: sid,
-      name: info.name || `线路${i + 1}`,
+      name: info.name || `线路${i + 1}`, // 原始网站from字段名
       eps: eps,
       direct: info.direct || false,
     });
@@ -545,8 +545,36 @@ async function resolvePlay(playKey) {
     title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
     link: "play:" + playKey,
     videoUrl: videoUrl,
+    from: pj.from || "", // 保留原始线路名
     playerType: "system",
   };
+}
+
+/**
+ * 根据作品id和集数索引，获取所有线路的播放地址
+ * 线路名使用网站原始标识
+ */
+async function getLineStreams(id, epIdx) {
+  const lines = await getAllLines(id);
+  if (!lines.length) return [];
+
+  const streams = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nid = line.eps[epIdx];
+    if (!nid) continue;
+
+    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+    if (playRes && playRes.videoUrl) {
+      streams.push({
+        name: line.name, // 原始网站线路名，无自定义前缀
+        description: line.direct ? "直链播放" : "解析播放",
+        url: playRes.videoUrl,
+        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+      });
+    }
+  }
+  return streams;
 }
 
 function stripTitleMeta(text) {
@@ -573,32 +601,6 @@ function scoreMatch(rawTitle, wantBaseNorm) {
   return -1;
 }
 
-/**
- * 根据作品id和集数索引，获取所有线路的播放地址
- */
-async function getLineStreams(id, epIdx) {
-  const lines = await getAllLines(id);
-  if (!lines.length) return [];
-
-  const streams = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const nid = line.eps[epIdx];
-    if (!nid) continue;
-
-    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-    if (playRes && playRes.videoUrl) {
-      streams.push({
-        name: `枫叶影院 - ${line.name}`,
-        description: line.direct ? "直链播放" : "解析播放",
-        url: playRes.videoUrl,
-        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-      });
-    }
-  }
-  return streams;
-}
-
 async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
@@ -616,7 +618,7 @@ async function loadResource(params = {}) {
       const playItem = await resolvePlay(linkStr.slice(5));
       if (playItem && playItem.videoUrl) {
         return [{
-          name: "枫叶影院",
+          name: playItem.from || "默认", // 使用原始线路名
           description: playItem.title || "播放链接",
           url: playItem.videoUrl,
           customHeaders: { Referer: BASE + "/", "User-Agent": UA },
