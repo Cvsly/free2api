@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.2.2",
+  version: "2.0.7",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：全6条线路高清直链播放，支持分类筛选、热门排序、聚合搜索",
+    "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -83,58 +83,40 @@ const BASE = "https://maihaolian.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PLATFORM_URLS = { qq: "/label/qq.html", youku: "/label/youku.html", bli: "/label/bli.html" };
 const PARSE_MAP = {
-  co: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  BBA: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  vwnet: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  YYNB: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  qiyi: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  bilibili: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  qq: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  youku: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
-  JD4K: { base: "https://fgsrg.hzqingshan.com/", referer: "https://fgsrg.hzqingshan.com/" },
-  JD2K: { base: "https://fgsrg.hzqingshan.com/", referer: "https://fgsrg.hzqingshan.com/" },
+  co: "https://zzrs.mfdyvip.com/player/?url=",
+  BBA: "https://zzrs.mfdyvip.com/player/?url=",
+  vwnet: "https://zzrs.mfdyvip.com/player/?url=",
+  YYNB: "https://zzrs.mfdyvip.com/player/?url=",
+  qiyi: "https://zzrs.mfdyvip.com/player/?url=",
+  bilibili: "https://zzrs.mfdyvip.com/player/?url=",
+  qq: "https://zzrs.mfdyvip.com/player/?url=",
+  youku: "https://zzrs.mfdyvip.com/player/?url=",
+  JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
+  JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 6;
 
 // ========== 基础工具函数 ==========
-async function httpGet(url, params, extraHeaders) {
-  const opt = { 
-    headers: { "User-Agent": UA, Referer: BASE + "/", ...(extraHeaders || {}) },
-    withCredentials: true,  // 关键：允许携带Cookie
-  };
+async function httpGet(url, params) {
+  const opt = { headers: { "User-Agent": UA, Referer: BASE + "/" } };
   if (params) opt.params = params;
   const res = await Widget.http.get(url, opt);
-  return res;  // 返回完整响应，包括headers
+  return res.data;
 }
 
-async function httpPost(url, bodyObj, extraHeaders) {
+async function httpPost(url, bodyObj) {
   const body = Object.keys(bodyObj)
     .map(k => k + "=" + encodeURIComponent(bodyObj[k]))
     .join("&");
   const res = await Widget.http.post(url, body, {
     headers: {
       "User-Agent": UA,
+      Referer: BASE + "/",
       "Content-Type": "application/x-www-form-urlencoded",
-      ...(extraHeaders || {}),
     },
-    withCredentials: true,  // 关键：允许携带Cookie
   });
-  return res;
-}
-
-function extractCookiesFromResponse(res) {
-  // 从响应headers中提取Set-Cookie
-  const cookies = [];
-  const setCookieHeaders = res.headers?.['set-cookie'] || res.headers?.['Set-Cookie'];
-  if (setCookieHeaders) {
-    const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
-    arr.forEach(c => {
-      const pair = c.split(';')[0];
-      if (pair) cookies.push(pair);
-    });
-  }
-  return cookies.join('; ');
+  return res.data;
 }
 
 function decodeHtml(s) {
@@ -185,8 +167,7 @@ async function apiUid() {
   let uid = Widget.storage.get("mhl_api_uid");
   if (uid) return uid;
   try {
-    const res = await httpGet(BASE + "/template/mp/js/app.js");
-    const js = res.data;
+    const js = await httpGet(BASE + "/template/mp/js/app.js");
     const m = String(js).match(/Uid:"([0-9A-Fa-f]+)"/);
     uid = m ? m[1] : API_UID_FALLBACK;
   } catch (e) {
@@ -204,12 +185,12 @@ async function loadVodList(params = {}) {
     const time = Math.floor(Date.now() / 1000);
     const uid = await apiUid();
     
-    const res = await httpPost(BASE + "/index.php/ajax/data", {
+    const data = await httpPost(BASE + "/index.php/ajax/data", {
       mid: 1, tid: params.tid || "", page, by, time,
       key: md5("DS" + time + uid),
     });
     
-    const json = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+    const json = typeof data === "string" ? JSON.parse(data) : data;
     if (!json || Number(json.code) !== 1) throw new Error("接口返回异常");
     const list = (json.list || []).map(vodToItem);
     if (!list.length) throw new Error("第 " + page + " 页已无数据");
@@ -227,8 +208,8 @@ async function loadPlatform(params = {}) {
     const basePath = PLATFORM_URLS[platform];
     if (!basePath) throw new Error("未知平台");
     const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
-    const res = await httpGet(BASE + path);
-    const items = parseCards(res.data);
+    const html = await httpGet(BASE + path);
+    const items = parseCards(html);
     if (!items.length) throw new Error("榜单为空");
     return items;
   } catch (e) {
@@ -242,8 +223,8 @@ async function search(params = {}) {
     const keyword = (params.keyword || "").trim();
     const page = parseInt(params.page || "1", 10);
     if (!keyword) return [];
-    const res = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword, page });
-    const json = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+    const data = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword, page });
+    const json = typeof data === "string" ? JSON.parse(data) : data;
     return ((json && json.list) || []).map(v => makeItem(v.id, v.name, v.pic, ""));
   } catch (e) {
     console.error("[search]", e.message);
@@ -251,7 +232,7 @@ async function search(params = {}) {
   }
 }
 
-// ========== 线路名称提取 ==========
+// ========== 核心修复：按网站真实DOM结构提取线路名 ==========
 function isEpisodeTitle(name) {
   if (!name) return true;
   return /^第\s*\d+\s*[集部季]$/.test(name) ||
@@ -259,9 +240,18 @@ function isEpisodeTitle(name) {
          /^\d+集$/.test(name);
 }
 
+/**
+ * 从详情页提取线路名称映射
+ * 网站真实结构：
+ *   导航栏 .anthology-tab > .swiper-wrapper > 6个 <a class="swiper-slide">
+ *   集数列表 .anthology-list > 6个 .anthology-list-box div
+ *   第i个导航名 对应 第i个box里的播放链接的sid
+ *   注意：导航顺序和sid数字顺序不一致！必须按box出现顺序对应
+ */
 function extractSourceNames(html) {
   const map = {};
 
+  // 1. 提取导航标签名（从 .anthology-tab 区域的 <a class="swiper-slide">）
   const navBlockMatch = html.match(/anthology-tab[\s\S]*?swiper-wrapper[\s\S]*?<\/div>/i);
   let navNames = [];
   if (navBlockMatch) {
@@ -273,6 +263,8 @@ function extractSourceNames(html) {
     }
   }
 
+  // 2. 按box出现顺序提取sid（不是按sid数字排序！）
+  // 每个 .anthology-list-box 里的第一个播放链接的sid，就是这个box对应的线路
   const sids = [];
   const boxRe = /anthology-list-box[^>]*>[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
   let m;
@@ -280,6 +272,7 @@ function extractSourceNames(html) {
     if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
   }
 
+  // 3. 按顺序一一对应：第i个导航名 → 第i个box的sid
   for (let i = 0; i < sids.length && i < navNames.length; i++) {
     map[sids[i]] = navNames[i];
   }
@@ -288,8 +281,7 @@ function extractSourceNames(html) {
 }
 
 async function getVideoDetail(id) {
-  const res = await httpGet(BASE + "/detail/" + id + ".html");
-  const html = res.data;
+  const html = await httpGet(BASE + "/detail/" + id + ".html");
   if (!html || html.indexOf("slide-info-title") < 0) return null;
 
   const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
@@ -302,8 +294,10 @@ async function getVideoDetail(id) {
   const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
+  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t / 自营y / 自营r）
   const sourceNames = extractSourceNames(html);
 
+  // 解析所有线路+集数
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -314,6 +308,7 @@ async function getVideoDetail(id) {
     groups[sid].push(nid);
   }
 
+  // 组装线路数组
   const lines = [];
   const sids = Object.keys(groups);
   for (let i = 0; i < sids.length; i++) {
@@ -322,12 +317,14 @@ async function getVideoDetail(id) {
     if (!eps.length) continue;
     lines.push({
       sid: sid,
-      name: sourceNames[sid] || "",
+      name: sourceNames[sid] || "", // 网站原生名
       eps: eps,
     });
   }
+  // 按集数从多到少排序
   lines.sort((a, b) => b.eps.length - a.eps.length);
 
+  // 相关推荐
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
 
@@ -379,91 +376,69 @@ async function loadDetail(link) {
   }
 }
 
-// ========== 核心：解密加密线路，提取真实m3u8地址 ==========
-async function extractRealVideoUrl(parseConfig, encryptedUrl) {
+// ========== 播放地址解析 ==========
+async function extractRealVideo(playerUrl) {
   try {
-    const { base, referer } = parseConfig;
-    
-    // 第一步：请求解析页面，提取data-u和data-te，同时获取Cookie
-    const pageUrl = base + "player/?url=" + encodeURIComponent(encryptedUrl);
-    const pageRes = await httpGet(pageUrl, null, { Referer: BASE + "/" });
-    const pageHtml = pageRes.data;
-    
-    const dataUMatch = pageHtml.match(/data-u="([^"]+)"/);
-    const dataTEMatch = pageHtml.match(/data-te="([^"]+)"/);
-    if (!dataUMatch || !dataTEMatch) return null;
-    
-    const dataU = dataUMatch[1];
-    const dataTE = dataTEMatch[1];
-    
-    // 从响应中提取Cookie
-    const cookies = extractCookiesFromResponse(pageRes);
-    
-    // 第二步：POST到mplayer.php获取真实地址，带上Cookie
-    const apiUrl = base + "player/mplayer.php";
-    const headers = { Referer: pageUrl };
-    if (cookies) headers['Cookie'] = cookies;
-    
-    const apiRes = await httpPost(apiUrl, {
-      url: dataU,
-      token: dataTE,
-    }, headers);
-    
-    const json = typeof apiRes.data === "string" ? JSON.parse(apiRes.data) : apiRes.data;
-    if (json && json.code === 200 && json.url) {
-      return {
-        url: json.url,
-        referer: referer,
-        cookies: cookies,  // 把Cookie也带回去
-      };
+    const html = await Widget.http.get(playerUrl, {
+      headers: {
+        "User-Agent": UA,
+        Referer: BASE + "/",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    }).then(r => r.data);
+
+    if (!html) return null;
+
+    let m = html.match(/var player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
+    if (m) {
+      try {
+        const pj = JSON.parse(m[1]);
+        if (pj.url && /^https?:\/\//.test(pj.url)) return pj.url;
+      } catch (e) {}
     }
+
+    m = html.match(/"url"\s*:\s*["'](https?:\/\/[^"']+\.(m3u8|mp4|flv)[^"']*)["']/i);
+    if (m) return m[1];
+
+    m = html.match(/<video[^>]+src=["'](https?:\/\/[^"']+)["']/i);
+    if (m) return m[1];
+
+    m = html.match(/var\s+(?:videoUrl|url|playUrl)\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+    if (m) return m[1];
+
     return null;
   } catch (e) {
-    console.error("[extractRealVideoUrl]", e.message);
+    console.error("[extractRealVideo] 失败:", e.message);
     return null;
   }
 }
 
 async function resolvePlay(playKey) {
   try {
-    const res = await httpGet(BASE + "/play/" + playKey + ".html");
-    const html = res.data;
+    const html = await httpGet(BASE + "/play/" + playKey + ".html");
     const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
     if (!m) return null;
     const pj = JSON.parse(m[1]);
     const url = pj.url || "";
-    const from = pj.from || "";
+    let videoUrl = null;
 
-    let realUrl = null;
-    let referer = BASE + "/";
-    let cookies = "";
-
-    if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
-      // 直链视频：直接返回
-      realUrl = url;
-      referer = BASE + "/";
-    } else if (PARSE_MAP[from]) {
-      // 加密线路：调用解密API获取真实地址
-      const result = await extractRealVideoUrl(PARSE_MAP[from], url);
-      if (result) {
-        realUrl = result.url;
-        referer = result.referer;
-        cookies = result.cookies || "";
-      }
+    if (/^https?:\/\//.test(url)) {
+      videoUrl = url;
+    } else if (PARSE_MAP[pj.from]) {
+      const playerUrl = PARSE_MAP[pj.from] + url;
+      videoUrl = await extractRealVideo(playerUrl);
     }
 
-    if (!realUrl) return null;
+    if (!videoUrl) return null;
 
     return {
       id: "play:" + playKey,
       type: "url",
       title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
       link: "play:" + playKey,
-      videoUrl: realUrl,
-      from: from,
+      videoUrl,
+      from: pj.from || "",
       playerType: "system",
-      referer: referer,
-      cookies: cookies,
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -484,22 +459,14 @@ async function getLineStreams(id, epIdx) {
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
     if (playRes && playRes.videoUrl) {
+      // 命名：优先网站原生线路名（蓝光2k/至臻4k/自营t）
       let showName = line.name || playRes.from || `线路${i + 1}`;
-
-      const headers = {
-        "User-Agent": UA,
-        "Referer": playRes.referer || BASE + "/",
-      };
-      // 关键：把Cookie也加到headers里
-      if (playRes.cookies) {
-        headers["Cookie"] = playRes.cookies;
-      }
 
       streams.push({
         name: showName,
         description: `第${epIdx + 1}集`,
         url: playRes.videoUrl,
-        headers: headers,
+        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
       });
     }
   }
@@ -517,6 +484,7 @@ async function loadResource(params = {}) {
       return await getLineStreams(id, epIdx);
     }
 
+    // 聚合搜索场景
     const multiSource = params.multiSource;
     const rawTitle = String(params.seriesName || params.title || "").trim();
     const wantEpisode = parseInt(params.episode, 10) || 0;
