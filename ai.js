@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.2.1",
+  version: "2.2.2",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全6条线路高清直链播放，支持分类筛选、热门排序、聚合搜索",
@@ -99,10 +99,13 @@ const MAX_AGG_LINES = 6;
 
 // ========== 基础工具函数 ==========
 async function httpGet(url, params, extraHeaders) {
-  const opt = { headers: { "User-Agent": UA, Referer: BASE + "/", ...(extraHeaders || {}) } };
+  const opt = { 
+    headers: { "User-Agent": UA, Referer: BASE + "/", ...(extraHeaders || {}) },
+    withCredentials: true,  // 关键：允许携带Cookie
+  };
   if (params) opt.params = params;
   const res = await Widget.http.get(url, opt);
-  return res.data;
+  return res;  // 返回完整响应，包括headers
 }
 
 async function httpPost(url, bodyObj, extraHeaders) {
@@ -115,8 +118,23 @@ async function httpPost(url, bodyObj, extraHeaders) {
       "Content-Type": "application/x-www-form-urlencoded",
       ...(extraHeaders || {}),
     },
+    withCredentials: true,  // 关键：允许携带Cookie
   });
-  return res.data;
+  return res;
+}
+
+function extractCookiesFromResponse(res) {
+  // 从响应headers中提取Set-Cookie
+  const cookies = [];
+  const setCookieHeaders = res.headers?.['set-cookie'] || res.headers?.['Set-Cookie'];
+  if (setCookieHeaders) {
+    const arr = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    arr.forEach(c => {
+      const pair = c.split(';')[0];
+      if (pair) cookies.push(pair);
+    });
+  }
+  return cookies.join('; ');
 }
 
 function decodeHtml(s) {
@@ -167,7 +185,8 @@ async function apiUid() {
   let uid = Widget.storage.get("mhl_api_uid");
   if (uid) return uid;
   try {
-    const js = await httpGet(BASE + "/template/mp/js/app.js");
+    const res = await httpGet(BASE + "/template/mp/js/app.js");
+    const js = res.data;
     const m = String(js).match(/Uid:"([0-9A-Fa-f]+)"/);
     uid = m ? m[1] : API_UID_FALLBACK;
   } catch (e) {
@@ -185,12 +204,12 @@ async function loadVodList(params = {}) {
     const time = Math.floor(Date.now() / 1000);
     const uid = await apiUid();
     
-    const data = await httpPost(BASE + "/index.php/ajax/data", {
+    const res = await httpPost(BASE + "/index.php/ajax/data", {
       mid: 1, tid: params.tid || "", page, by, time,
       key: md5("DS" + time + uid),
     });
     
-    const json = typeof data === "string" ? JSON.parse(data) : data;
+    const json = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
     if (!json || Number(json.code) !== 1) throw new Error("接口返回异常");
     const list = (json.list || []).map(vodToItem);
     if (!list.length) throw new Error("第 " + page + " 页已无数据");
@@ -208,8 +227,8 @@ async function loadPlatform(params = {}) {
     const basePath = PLATFORM_URLS[platform];
     if (!basePath) throw new Error("未知平台");
     const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
-    const html = await httpGet(BASE + path);
-    const items = parseCards(html);
+    const res = await httpGet(BASE + path);
+    const items = parseCards(res.data);
     if (!items.length) throw new Error("榜单为空");
     return items;
   } catch (e) {
@@ -223,8 +242,8 @@ async function search(params = {}) {
     const keyword = (params.keyword || "").trim();
     const page = parseInt(params.page || "1", 10);
     if (!keyword) return [];
-    const data = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword, page });
-    const json = typeof data === "string" ? JSON.parse(data) : data;
+    const res = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword, page });
+    const json = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
     return ((json && json.list) || []).map(v => makeItem(v.id, v.name, v.pic, ""));
   } catch (e) {
     console.error("[search]", e.message);
@@ -269,7 +288,8 @@ function extractSourceNames(html) {
 }
 
 async function getVideoDetail(id) {
-  const html = await httpGet(BASE + "/detail/" + id + ".html");
+  const res = await httpGet(BASE + "/detail/" + id + ".html");
+  const html = res.data;
   if (!html || html.indexOf("slide-info-title") < 0) return null;
 
   const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
@@ -364,9 +384,10 @@ async function extractRealVideoUrl(parseConfig, encryptedUrl) {
   try {
     const { base, referer } = parseConfig;
     
-    // 第一步：请求解析页面，提取data-u和data-te
+    // 第一步：请求解析页面，提取data-u和data-te，同时获取Cookie
     const pageUrl = base + "player/?url=" + encodeURIComponent(encryptedUrl);
-    const pageHtml = await httpGet(pageUrl, null, { Referer: BASE + "/" });
+    const pageRes = await httpGet(pageUrl, null, { Referer: BASE + "/" });
+    const pageHtml = pageRes.data;
     
     const dataUMatch = pageHtml.match(/data-u="([^"]+)"/);
     const dataTEMatch = pageHtml.match(/data-te="([^"]+)"/);
@@ -375,18 +396,25 @@ async function extractRealVideoUrl(parseConfig, encryptedUrl) {
     const dataU = dataUMatch[1];
     const dataTE = dataTEMatch[1];
     
-    // 第二步：POST到mplayer.php获取真实地址
+    // 从响应中提取Cookie
+    const cookies = extractCookiesFromResponse(pageRes);
+    
+    // 第二步：POST到mplayer.php获取真实地址，带上Cookie
     const apiUrl = base + "player/mplayer.php";
-    const apiResult = await httpPost(apiUrl, {
+    const headers = { Referer: pageUrl };
+    if (cookies) headers['Cookie'] = cookies;
+    
+    const apiRes = await httpPost(apiUrl, {
       url: dataU,
       token: dataTE,
-    }, { Referer: pageUrl });
+    }, headers);
     
-    const json = typeof apiResult === "string" ? JSON.parse(apiResult) : apiResult;
+    const json = typeof apiRes.data === "string" ? JSON.parse(apiRes.data) : apiRes.data;
     if (json && json.code === 200 && json.url) {
       return {
         url: json.url,
-        referer: referer,  // 关键：返回对应解析器的Referer
+        referer: referer,
+        cookies: cookies,  // 把Cookie也带回去
       };
     }
     return null;
@@ -398,7 +426,8 @@ async function extractRealVideoUrl(parseConfig, encryptedUrl) {
 
 async function resolvePlay(playKey) {
   try {
-    const html = await httpGet(BASE + "/play/" + playKey + ".html");
+    const res = await httpGet(BASE + "/play/" + playKey + ".html");
+    const html = res.data;
     const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
     if (!m) return null;
     const pj = JSON.parse(m[1]);
@@ -406,18 +435,20 @@ async function resolvePlay(playKey) {
     const from = pj.from || "";
 
     let realUrl = null;
-    let referer = BASE + "/";  // 默认Referer是原站
+    let referer = BASE + "/";
+    let cookies = "";
 
     if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
-      // 直链视频：直接返回，Referer用原站
+      // 直链视频：直接返回
       realUrl = url;
       referer = BASE + "/";
     } else if (PARSE_MAP[from]) {
-      // 加密线路：调用解密API获取真实地址，并使用解析器的Referer
+      // 加密线路：调用解密API获取真实地址
       const result = await extractRealVideoUrl(PARSE_MAP[from], url);
       if (result) {
         realUrl = result.url;
         referer = result.referer;
+        cookies = result.cookies || "";
       }
     }
 
@@ -431,7 +462,8 @@ async function resolvePlay(playKey) {
       videoUrl: realUrl,
       from: from,
       playerType: "system",
-      referer: referer,  // 关键：把Referer带回去
+      referer: referer,
+      cookies: cookies,
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -454,14 +486,20 @@ async function getLineStreams(id, epIdx) {
     if (playRes && playRes.videoUrl) {
       let showName = line.name || playRes.from || `线路${i + 1}`;
 
+      const headers = {
+        "User-Agent": UA,
+        "Referer": playRes.referer || BASE + "/",
+      };
+      // 关键：把Cookie也加到headers里
+      if (playRes.cookies) {
+        headers["Cookie"] = playRes.cookies;
+      }
+
       streams.push({
         name: showName,
         description: `第${epIdx + 1}集`,
         url: playRes.videoUrl,
-        headers: {
-          "User-Agent": UA,
-          "Referer": playRes.referer || BASE + "/",  // 关键：使用对应线路的Referer
-        },
+        headers: headers,
       });
     }
   }
