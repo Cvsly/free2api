@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.1",
+  version: "2.0.2",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -93,6 +93,19 @@ const PARSE_MAP = {
   youku: "https://zzrs.mfdyvip.com/player/?url=",
   JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
+};
+// 解析源 → 分辨率/友好名称映射（兜底用）
+const SOURCE_NAME_MAP = {
+  "JD4K": "4K超清",
+  "JD2K": "2K蓝光",
+  "co": "高清线路",
+  "BBA": "蓝光线路",
+  "vwnet": "极速线路",
+  "YYNB": "云播线路",
+  "qiyi": "爱奇艺线",
+  "bilibili": "B站线路",
+  "qq": "腾讯线路",
+  "youku": "优酷线路",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 5;
@@ -233,22 +246,18 @@ async function search(params = {}) {
 }
 
 // ========== 核心：统一详情解析 ==========
+/**
+ * 增强版：提取所有带data-sid的线路名称，不限制标签类型
+ */
 function extractSourceNames(html) {
   const map = {};
-  const re = /<li[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/li>/gi;
+  // 通用匹配：所有带 data-sid 属性的元素，兼容 li/span/div/option 等各种标签
+  const re = /data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\//gi;
   let m;
   while ((m = re.exec(html))) {
     const sid = m[1];
     const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-    if (name) map[sid] = name;
-  }
-  if (Object.keys(map).length === 0) {
-    const re2 = /<span[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/span>/gi;
-    while ((m = re2.exec(html))) {
-      const sid = m[1];
-      const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-      if (name) map[sid] = name;
-    }
+    if (name && !map[sid]) map[sid] = name;
   }
   return map;
 }
@@ -382,6 +391,7 @@ async function resolvePlay(playKey) {
       title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
       link: "play:" + playKey,
       videoUrl,
+      from: pj.from || "", // 透传解析源标识
       playerType: "system",
     };
   } catch (e) {
@@ -389,7 +399,36 @@ async function resolvePlay(playKey) {
   }
 }
 
-// ========== 多线路资源加载 ==========
+// ========== 多线路资源加载（分辨率命名） ==========
+async function getLineStreams(id, epIdx) {
+  const detail = await getVideoDetail(id);
+  if (!detail || !detail.lines.length) return [];
+
+  const streams = [];
+  for (let i = 0; i < detail.lines.length; i++) {
+    const line = detail.lines[i];
+    const nid = line.eps[epIdx];
+    if (!nid) continue;
+
+    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+    if (playRes && playRes.videoUrl) {
+      // 命名优先级：网站原生标签名 > 分辨率映射名 > 默认编号名
+      let showName = line.name;
+      // 如果是默认的"线路N"，用from字段映射成分辨率名称
+      if (/^线路\d+$/.test(showName) && playRes.from) {
+        showName = SOURCE_NAME_MAP[playRes.from] || line.name;
+      }
+      streams.push({
+        name: showName,
+        description: `第${epIdx + 1}集`,
+        url: playRes.videoUrl,
+        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+      });
+    }
+  }
+  return streams;
+}
+
 async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
@@ -399,27 +438,7 @@ async function loadResource(params = {}) {
       const body = linkStr.slice(5);
       const [id, epStr] = body.split("#");
       const epIdx = parseInt(epStr || "0", 10);
-
-      const detail = await getVideoDetail(id);
-      if (!detail || !detail.lines.length) return [];
-
-      const streams = [];
-      for (let i = 0; i < detail.lines.length; i++) {
-        const line = detail.lines[i];
-        const nid = line.eps[epIdx];
-        if (!nid) continue;
-
-        const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-        if (playRes && playRes.videoUrl) {
-          streams.push({
-            name: line.name,
-            description: `第${epIdx + 1}集`,
-            url: playRes.videoUrl,
-            customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-          });
-        }
-      }
-      return streams;
+      return await getLineStreams(id, epIdx);
     }
 
     // 聚合搜索场景
@@ -441,26 +460,8 @@ async function loadResource(params = {}) {
     if (!best || bestScore < 0) best = searchItems[0];
 
     const id = best.id.replace("detail:", "");
-    const detail = await getVideoDetail(id);
-    if (!detail || !detail.lines.length) return [];
-
-    const epIdx = Math.max(0, wantEpisode - 1);
-    const streams = [];
-    for (let i = 0; i < Math.min(detail.lines.length, MAX_AGG_LINES); i++) {
-      const line = detail.lines[i];
-      const nid = line.eps[epIdx];
-      if (!nid) continue;
-      const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-      if (playRes && playRes.videoUrl) {
-        streams.push({
-          name: line.name,
-          description: wantEpisode ? `第${wantEpisode}集` : "正片",
-          url: playRes.videoUrl,
-          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-        });
-      }
-    }
-    return streams;
+    const streams = await getLineStreams(id, Math.max(0, wantEpisode - 1));
+    return streams.slice(0, MAX_AGG_LINES);
   } catch (e) {
     console.error("[loadResource]", e.message);
     return [];
