@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.6",
+  version: "2.0.7",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -95,7 +95,7 @@ const PARSE_MAP = {
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
-const MAX_AGG_LINES = 5;
+const MAX_AGG_LINES = 6;
 
 // ========== 基础工具函数 ==========
 async function httpGet(url, params) {
@@ -232,7 +232,7 @@ async function search(params = {}) {
   }
 }
 
-// ========== 核心修复：线路名称提取（完全对齐网站） ==========
+// ========== 核心修复：按网站真实DOM结构提取线路名 ==========
 function isEpisodeTitle(name) {
   if (!name) return true;
   return /^第\s*\d+\s*[集部季]$/.test(name) ||
@@ -241,61 +241,40 @@ function isEpisodeTitle(name) {
 }
 
 /**
- * 从详情页提取线路名称
- * 关键：按网站「播放线路」导航栏的实际文本提取，和网站显示完全一致
+ * 从详情页提取线路名称映射
+ * 网站真实结构：
+ *   导航栏 .anthology-tab > .swiper-wrapper > 6个 <a class="swiper-slide">
+ *   集数列表 .anthology-list > 6个 .anthology-list-box div
+ *   第i个导航名 对应 第i个box里的播放链接的sid
+ *   注意：导航顺序和sid数字顺序不一致！必须按box出现顺序对应
  */
 function extractSourceNames(html) {
   const map = {};
 
-  // ===== 优先模式：定位「播放线路」标题后的 ul 导航 =====
-  // 匹配「播放线路」标题块后面的 ul，提取所有 li 的文本
-  const navBlock = html.match(/播放线路[\s\S]{0,200}?<ul[^>]*>([\s\S]*?)<\/ul>/i);
-  if (navBlock) {
-    const lis = navBlock[1].match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
-    if (lis && lis.length > 0) {
-      const navNames = lis.map(li => {
-        return stripTags(li).replace(/\(\d+\)$/, "").trim();
+  // 1. 提取导航标签名（从 .anthology-tab 区域的 <a class="swiper-slide">）
+  const navBlockMatch = html.match(/anthology-tab[\s\S]*?swiper-wrapper[\s\S]*?<\/div>/i);
+  let navNames = [];
+  if (navBlockMatch) {
+    const navLinks = navBlockMatch[0].match(/<a[^>]*class="swiper-slide"[^>]*>([\s\S]*?)<\/a>/gi);
+    if (navLinks && navLinks.length > 0) {
+      navNames = navLinks.map(a => {
+        return stripTags(a).replace(/\(\d+\)$/, "").trim();
       }).filter(n => n && !isEpisodeTitle(n));
-      
-      // 提取所有 sid 出现的顺序（去重）
-      const sids = [];
-      const re = /\/play\/\d+-(\d+)-\d+\.html/g;
-      let m;
-      while ((m = re.exec(html))) {
-        if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
-      }
-      
-      // 按索引一一对应：第1个导航名对应第1个sid，以此类推
-      for (let i = 0; i < sids.length && i < navNames.length; i++) {
-        map[sids[i]] = navNames[i];
-      }
-      
-      // 如果成功提取到了，直接返回
-      if (Object.keys(map).length > 0) return map;
     }
   }
 
-  // ===== 备选模式1：data-sid 属性 =====
-  const re1 = /data-sid\s*=\s*["'](\d+)["'][^>]*>([\s\S]*?)<\//gi;
+  // 2. 按box出现顺序提取sid（不是按sid数字排序！）
+  // 每个 .anthology-list-box 里的第一个播放链接的sid，就是这个box对应的线路
+  const sids = [];
+  const boxRe = /anthology-list-box[^>]*>[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
   let m;
-  while ((m = re1.exec(html))) {
-    const sid = m[1];
-    const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-    if (name && !map[sid] && !isEpisodeTitle(name)) {
-      map[sid] = name;
-    }
+  while ((m = boxRe.exec(html))) {
+    if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
   }
 
-  // ===== 备选模式2：href="#tab-x" =====
-  if (Object.keys(map).length === 0) {
-    const re2 = /<a[^>]*href=["']#tab-(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    while ((m = re2.exec(html))) {
-      const sid = m[1];
-      const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-      if (name && !map[sid] && !isEpisodeTitle(name)) {
-        map[sid] = name;
-      }
-    }
+  // 3. 按顺序一一对应：第i个导航名 → 第i个box的sid
+  for (let i = 0; i < sids.length && i < navNames.length; i++) {
+    map[sids[i]] = navNames[i];
   }
 
   return map;
@@ -315,7 +294,7 @@ async function getVideoDetail(id) {
   const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
-  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t）
+  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t / 自营y / 自营r）
   const sourceNames = extractSourceNames(html);
 
   // 解析所有线路+集数
@@ -467,7 +446,7 @@ async function resolvePlay(playKey) {
   }
 }
 
-// ========== 多线路资源加载（最终命名修复） ==========
+// ========== 多线路资源加载 ==========
 async function getLineStreams(id, epIdx) {
   const detail = await getVideoDetail(id);
   if (!detail || !detail.lines.length) return [];
@@ -480,13 +459,12 @@ async function getLineStreams(id, epIdx) {
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
     if (playRes && playRes.videoUrl) {
-      // 命名：优先用网站原生线路名（蓝光2k/至臻4k/自营t）
-      // 网站提取不到才用 from 原始值兜底
+      // 命名：优先网站原生线路名（蓝光2k/至臻4k/自营t）
       let showName = line.name || playRes.from || `线路${i + 1}`;
 
       streams.push({
-        name: showName, // 主标题：网站原生线路名
-        description: `第${epIdx + 1}集`, // 副标题：集数
+        name: showName,
+        description: `第${epIdx + 1}集`,
         url: playRes.videoUrl,
         customHeaders: { Referer: BASE + "/", "User-Agent": UA },
       });
