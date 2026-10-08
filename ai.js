@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.4",
+  version: "2.0.5",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -94,7 +94,7 @@ const PARSE_MAP = {
   JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
-// 解析源 → 友好名称映射（可自行补充）
+// 解析源 → 友好名称映射
 const SOURCE_NAME_MAP = {
   "JD4K": "4K超清",
   "JD2K": "2K蓝光",
@@ -107,9 +107,6 @@ const SOURCE_NAME_MAP = {
   "bilibili": "B站线路",
   "qq": "腾讯线路",
   "youku": "优酷线路",
-  "蓝光2k": "2K蓝光",
-  "至臻4k": "4K至臻",
-  "自营t": "独享线路",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 5;
@@ -249,39 +246,63 @@ async function search(params = {}) {
   }
 }
 
-// ========== 增强版：线路名称提取 ==========
+// ========== 核心修复：线路名称提取 ==========
+/**
+ * 判断文本是否是集数标题（需要过滤掉）
+ */
+function isEpisodeTitle(name) {
+  if (!name) return true;
+  // 匹配「第N集」「第N部」「正片」「HD」「高清」等集数格式
+  return /^第\s*\d+\s*[集部季]$/.test(name) ||
+         /^正片$/.test(name) ||
+         /^\d+集$/.test(name) ||
+         /^HD$/i.test(name);
+}
+
+/**
+ * 从详情页提取线路标签名（网站导航栏显示的名称）
+ * 关键修复：过滤集数标题，只提取真正的线路名
+ */
 function extractSourceNames(html) {
   const map = {};
 
-  // 模式1：标准 data-sid 属性（任意标签）
+  // 模式1：data-sid 属性（苹果CMS标准）
   const re1 = /data-sid\s*=\s*["'](\d+)["'][^>]*>([\s\S]*?)<\//gi;
   let m;
   while ((m = re1.exec(html))) {
     const sid = m[1];
     const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-    if (name && !map[sid]) map[sid] = name;
-  }
-
-  // 模式2：从播放链接反向提取（兼容无data-sid的模板）
-  if (Object.keys(map).length === 0) {
-    const re2 = /href=["']\/play\/[^"']+-(\d+)-\d+\.html["'][^>]*>([\s\S]*?)<\/a>/gi;
-    while ((m = re2.exec(html))) {
-      const sid = m[1];
-      const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-      if (name && !map[sid]) map[sid] = name;
+    // 关键：跳过集数标题，只保留真正的线路名
+    if (name && !map[sid] && !isEpisodeTitle(name)) {
+      map[sid] = name;
     }
   }
 
-  // 模式3：匹配vod_source容器下的li（苹果CMS标准结构）
+  // 模式2：导航标签 href="#tab-x"（Bootstrap tab 结构）
   if (Object.keys(map).length === 0) {
-    const block = html.match(/class=["'][^"']*vod_source[^"']*["'][^>]*>([\s\S]*?)<\/(div|ul)>/i);
+    const re2 = /<a[^>]*href=["']#tab-(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    while ((m = re2.exec(html))) {
+      const sid = m[1];
+      const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
+      if (name && !map[sid] && !isEpisodeTitle(name)) {
+        map[sid] = name;
+      }
+    }
+  }
+
+  // 模式3：vod_source 容器下的 li（经典苹果CMS结构）
+  if (Object.keys(map).length === 0) {
+    const block = html.match(/class=["'][^"']*play_source[^"']*["'][^>]*>([\s\S]*?)<\/(div|ul)>/i)
+              || html.match(/class=["'][^"']*vod_play[^"']*list[^"']*["'][^>]*>([\s\S]*?)<\/(div|ul)>/i);
     if (block) {
       const lis = block[1].match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
       if (lis) {
         lis.forEach((li, idx) => {
           const sid = String(idx + 1);
           const name = stripTags(li).replace(/\(\d+\)$/, "").trim();
-          if (name && !map[sid]) map[sid] = name;
+          if (name && !map[sid] && !isEpisodeTitle(name)) {
+            map[sid] = name;
+          }
         });
       }
     }
@@ -294,7 +315,6 @@ async function getVideoDetail(id) {
   const html = await httpGet(BASE + "/detail/" + id + ".html");
   if (!html || html.indexOf("slide-info-title") < 0) return null;
 
-  // 基础信息
   const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
   const title = tm ? decodeHtml(tm[1]) : id;
   const pm = html.match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
@@ -305,7 +325,7 @@ async function getVideoDetail(id) {
   const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
-  // 线路名称
+  // 提取线路名（已修复：不会再提取到集数标题）
   const sourceNames = extractSourceNames(html);
 
   // 解析所有线路+集数
@@ -326,12 +346,14 @@ async function getVideoDetail(id) {
     const sid = sids[i];
     const eps = groups[sid].sort((a, b) => a - b);
     if (!eps.length) continue;
+    // 线路名：优先网站导航名，否则先占位，后面播放时再用from字段补
     lines.push({
       sid: sid,
-      name: sourceNames[sid] || `线路${i + 1}`,
+      name: sourceNames[sid] || "", // 留空，后面用from字段补
       eps: eps,
     });
   }
+  // 按集数从多到少排序
   lines.sort((a, b) => b.eps.length - a.eps.length);
 
   // 相关推荐
@@ -399,7 +421,6 @@ async function extractRealVideo(playerUrl) {
 
     if (!html) return null;
 
-    // 1. player_aaaa 格式
     let m = html.match(/var player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
     if (m) {
       try {
@@ -408,21 +429,18 @@ async function extractRealVideo(playerUrl) {
       } catch (e) {}
     }
 
-    // 2. 通用 "url":"xxx.m3u8"
     m = html.match(/"url"\s*:\s*["'](https?:\/\/[^"']+\.(m3u8|mp4|flv)[^"']*)["']/i);
     if (m) return m[1];
 
-    // 3. video 标签
     m = html.match(/<video[^>]+src=["'](https?:\/\/[^"']+)["']/i);
     if (m) return m[1];
 
-    // 4. var videoUrl
     m = html.match(/var\s+(?:videoUrl|url|playUrl)\s*=\s*["'](https?:\/\/[^"']+)["']/i);
     if (m) return m[1];
 
     return null;
   } catch (e) {
-    console.error("[extractRealVideo] 失败:", playerUrl, e.message);
+    console.error("[extractRealVideo] 失败:", e.message);
     return null;
   }
 }
@@ -460,7 +478,7 @@ async function resolvePlay(playKey) {
   }
 }
 
-// ========== 多线路资源加载（命名修复） ==========
+// ========== 多线路资源加载（命名最终修复） ==========
 async function getLineStreams(id, epIdx) {
   const detail = await getVideoDetail(id);
   if (!detail || !detail.lines.length) return [];
@@ -473,18 +491,22 @@ async function getLineStreams(id, epIdx) {
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
     if (playRes && playRes.videoUrl) {
-      let showName = line.name;
-
-      // 核心修复：如果是默认编号，优先用映射名，再用from原始值，绝不退回编号
-      if (/^线路\d+$/.test(showName)) {
+      // 命名优先级：网站导航名 > 映射友好名 > from原始值
+      let showName = line.name || "";
+      
+      if (!showName) {
+        // 网站没提取到，用映射表
         if (playRes.from) {
           showName = SOURCE_NAME_MAP[playRes.from] || playRes.from;
         }
       }
+      
+      // 最后兜底
+      if (!showName) showName = `线路${i + 1}`;
 
       streams.push({
-        name: showName,
-        description: `第${epIdx + 1}集`,
+        name: showName, // 主标题：线路名（蓝光2k/至臻4k等）
+        description: `第${epIdx + 1}集`, // 副标题：集数
         url: playRes.videoUrl,
         customHeaders: { Referer: BASE + "/", "User-Agent": UA },
       });
