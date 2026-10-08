@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.6.1",
+  version: "1.6.2",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路高清播放，内置流媒体聚合搜索",
@@ -246,7 +246,6 @@ const PARSE_MAP = {
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
-// 聚合搜索最多返回线路数
 const MAX_AGG_LINES = 3;
 
 async function httpGet(url, params) {
@@ -410,7 +409,6 @@ async function search(params = {}) {
 async function loadDetail(link) {
   const key = String(link);
   try {
-    // 兼容旧版单线路播放链接
     if (key.indexOf("play:") === 0 && key.indexOf(":") !== key.lastIndexOf(":")) {
       return await resolvePlay(key.slice(5));
     }
@@ -423,13 +421,42 @@ async function loadDetail(link) {
 }
 
 /**
- * 解析详情页所有线路信息
- * 返回 { sid: 线路id, name: 原始线路名, eps: [nid], direct: boolean } 数组
+ * 从详情页提取线路名称映射（和网站前台显示完全一致）
+ * 返回 { sid: 线路名 }
+ */
+function extractSourceNames(html) {
+  const map = {};
+  // 匹配苹果CMS标准线路标签 <li data-sid="x">线路名</li>
+  const re = /<li[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/li>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const sid = m[1];
+    const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim(); // 去掉集数后缀
+    if (name) map[sid] = name;
+  }
+  // 兼容另一种结构 <span class="source" data-sid="x">线路名</span>
+  if (Object.keys(map).length === 0) {
+    const re2 = /<span[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/span>/gi;
+    while ((m = re2.exec(html))) {
+      const sid = m[1];
+      const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
+      if (name) map[sid] = name;
+    }
+  }
+  return map;
+}
+
+/**
+ * 获取所有可用线路（线路名使用网站前台显示名称）
  */
 async function getAllLines(id) {
   const html = await httpGet(BASE + "/detail/" + id + ".html");
   if (!html || html.indexOf("slide-info-title") < 0) return [];
 
+  // 提取前台线路名
+  const sourceNames = extractSourceNames(html);
+
+  // 提取所有线路的集数
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -444,12 +471,16 @@ async function getAllLines(id) {
   const sids = Object.keys(groups);
   for (let i = 0; i < sids.length; i++) {
     const sid = sids[i];
+    // 优先用前台显示名，fallback 到解析源标识
+    const displayName = sourceNames[sid] || "";
     const info = await probePlay(id, sid, 1);
     if (!info) continue;
+
     const eps = groups[sid].sort((a, b) => a - b);
     lines.push({
       sid: sid,
-      name: info.name || `线路${i + 1}`, // 原始网站from字段名
+      name: displayName || info.name || `线路${i + 1}`,
+      from: info.from || "", // 保留解析源标识，用于拼接播放地址
       eps: eps,
       direct: info.direct || false,
     });
@@ -478,15 +509,12 @@ async function loadVodDetail(id, link) {
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
 
-  // 获取所有可用线路
   const lines = await getAllLines(id);
   if (!lines.length) throw new Error("未找到可用播放线路");
 
-  // 主线路：第一条（直链优先）
   const primary = lines[0];
   const isMovie = primary.eps.length === 1;
 
-  // 生成纯集数列表，不带线路名
   const episodeItems = primary.eps.map((nid, idx) => ({
     id: `play:${id}:${idx}`,
     type: "url",
@@ -545,14 +573,14 @@ async function resolvePlay(playKey) {
     title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
     link: "play:" + playKey,
     videoUrl: videoUrl,
-    from: pj.from || "", // 保留原始线路名
+    from: pj.from || "",
     playerType: "system",
   };
 }
 
 /**
- * 根据作品id和集数索引，获取所有线路的播放地址
- * 线路名使用网站原始标识
+ * 获取指定集数的所有线路播放地址
+ * 线路名使用网站前台显示名称
  */
 async function getLineStreams(id, epIdx) {
   const lines = await getAllLines(id);
@@ -567,7 +595,7 @@ async function getLineStreams(id, epIdx) {
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
     if (playRes && playRes.videoUrl) {
       streams.push({
-        name: line.name, // 原始网站线路名，无自定义前缀
+        name: line.name, // 网站前台显示的线路名
         description: line.direct ? "直链播放" : "解析播放",
         url: playRes.videoUrl,
         customHeaders: { Referer: BASE + "/", "User-Agent": UA },
@@ -605,20 +633,18 @@ async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
 
-    // ===== 标准播放链路：点击集数后加载所有线路 =====
     if (linkStr.indexOf("play:") === 0) {
       const parts = linkStr.slice(5).split(":");
-      // 新格式 play:id:epIdx
       if (parts.length === 2) {
         const id = parts[0];
         const epIdx = parseInt(parts[1], 10) || 0;
         return await getLineStreams(id, epIdx);
       }
-      // 兼容旧格式 play:id-sid-nid（单线路）
+      // 兼容旧格式
       const playItem = await resolvePlay(linkStr.slice(5));
       if (playItem && playItem.videoUrl) {
         return [{
-          name: playItem.from || "默认", // 使用原始线路名
+          name: playItem.from || "默认",
           description: playItem.title || "播放链接",
           url: playItem.videoUrl,
           customHeaders: { Referer: BASE + "/", "User-Agent": UA },
@@ -627,7 +653,7 @@ async function loadResource(params = {}) {
       return [];
     }
 
-    // ===== 聚合搜索场景 =====
+    // 聚合搜索场景
     const multiSource = params.multiSource;
     const rawTitle = String(params.seriesName || params.title || "").trim();
     const wantEpisode = parseInt(params.episode, 10) || 0;
@@ -654,7 +680,6 @@ async function loadResource(params = {}) {
     const id = best.id.replace("detail:", "");
     const streams = await getLineStreams(id, Math.max(0, wantEpisode - 1));
     
-    // 限制聚合返回线路数
     return streams.slice(0, MAX_AGG_LINES);
   } catch (error) {
     console.error("[loadResource] 失败:", error.message || error);
