@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.5",
+  version: "2.0.6",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -93,20 +93,6 @@ const PARSE_MAP = {
   youku: "https://zzrs.mfdyvip.com/player/?url=",
   JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
-};
-// 解析源 → 友好名称映射
-const SOURCE_NAME_MAP = {
-  "JD4K": "4K超清",
-  "JD2K": "2K蓝光",
-  "dyttm3u8": "电影天堂",
-  "co": "高清线路",
-  "BBA": "蓝光线路",
-  "vwnet": "极速线路",
-  "YYNB": "云播线路",
-  "qiyi": "爱奇艺线",
-  "bilibili": "B站线路",
-  "qq": "腾讯线路",
-  "youku": "优酷线路",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 5;
@@ -246,39 +232,61 @@ async function search(params = {}) {
   }
 }
 
-// ========== 核心修复：线路名称提取 ==========
-/**
- * 判断文本是否是集数标题（需要过滤掉）
- */
+// ========== 核心修复：线路名称提取（完全对齐网站） ==========
 function isEpisodeTitle(name) {
   if (!name) return true;
-  // 匹配「第N集」「第N部」「正片」「HD」「高清」等集数格式
   return /^第\s*\d+\s*[集部季]$/.test(name) ||
          /^正片$/.test(name) ||
-         /^\d+集$/.test(name) ||
-         /^HD$/i.test(name);
+         /^\d+集$/.test(name);
 }
 
 /**
- * 从详情页提取线路标签名（网站导航栏显示的名称）
- * 关键修复：过滤集数标题，只提取真正的线路名
+ * 从详情页提取线路名称
+ * 关键：按网站「播放线路」导航栏的实际文本提取，和网站显示完全一致
  */
 function extractSourceNames(html) {
   const map = {};
 
-  // 模式1：data-sid 属性（苹果CMS标准）
+  // ===== 优先模式：定位「播放线路」标题后的 ul 导航 =====
+  // 匹配「播放线路」标题块后面的 ul，提取所有 li 的文本
+  const navBlock = html.match(/播放线路[\s\S]{0,200}?<ul[^>]*>([\s\S]*?)<\/ul>/i);
+  if (navBlock) {
+    const lis = navBlock[1].match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
+    if (lis && lis.length > 0) {
+      const navNames = lis.map(li => {
+        return stripTags(li).replace(/\(\d+\)$/, "").trim();
+      }).filter(n => n && !isEpisodeTitle(n));
+      
+      // 提取所有 sid 出现的顺序（去重）
+      const sids = [];
+      const re = /\/play\/\d+-(\d+)-\d+\.html/g;
+      let m;
+      while ((m = re.exec(html))) {
+        if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
+      }
+      
+      // 按索引一一对应：第1个导航名对应第1个sid，以此类推
+      for (let i = 0; i < sids.length && i < navNames.length; i++) {
+        map[sids[i]] = navNames[i];
+      }
+      
+      // 如果成功提取到了，直接返回
+      if (Object.keys(map).length > 0) return map;
+    }
+  }
+
+  // ===== 备选模式1：data-sid 属性 =====
   const re1 = /data-sid\s*=\s*["'](\d+)["'][^>]*>([\s\S]*?)<\//gi;
   let m;
   while ((m = re1.exec(html))) {
     const sid = m[1];
     const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
-    // 关键：跳过集数标题，只保留真正的线路名
     if (name && !map[sid] && !isEpisodeTitle(name)) {
       map[sid] = name;
     }
   }
 
-  // 模式2：导航标签 href="#tab-x"（Bootstrap tab 结构）
+  // ===== 备选模式2：href="#tab-x" =====
   if (Object.keys(map).length === 0) {
     const re2 = /<a[^>]*href=["']#tab-(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     while ((m = re2.exec(html))) {
@@ -286,24 +294,6 @@ function extractSourceNames(html) {
       const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
       if (name && !map[sid] && !isEpisodeTitle(name)) {
         map[sid] = name;
-      }
-    }
-  }
-
-  // 模式3：vod_source 容器下的 li（经典苹果CMS结构）
-  if (Object.keys(map).length === 0) {
-    const block = html.match(/class=["'][^"']*play_source[^"']*["'][^>]*>([\s\S]*?)<\/(div|ul)>/i)
-              || html.match(/class=["'][^"']*vod_play[^"']*list[^"']*["'][^>]*>([\s\S]*?)<\/(div|ul)>/i);
-    if (block) {
-      const lis = block[1].match(/<li[^>]*>([\s\S]*?)<\/li>/gi);
-      if (lis) {
-        lis.forEach((li, idx) => {
-          const sid = String(idx + 1);
-          const name = stripTags(li).replace(/\(\d+\)$/, "").trim();
-          if (name && !map[sid] && !isEpisodeTitle(name)) {
-            map[sid] = name;
-          }
-        });
       }
     }
   }
@@ -325,7 +315,7 @@ async function getVideoDetail(id) {
   const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
-  // 提取线路名（已修复：不会再提取到集数标题）
+  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t）
   const sourceNames = extractSourceNames(html);
 
   // 解析所有线路+集数
@@ -346,10 +336,9 @@ async function getVideoDetail(id) {
     const sid = sids[i];
     const eps = groups[sid].sort((a, b) => a - b);
     if (!eps.length) continue;
-    // 线路名：优先网站导航名，否则先占位，后面播放时再用from字段补
     lines.push({
       sid: sid,
-      name: sourceNames[sid] || "", // 留空，后面用from字段补
+      name: sourceNames[sid] || "", // 网站原生名
       eps: eps,
     });
   }
@@ -478,7 +467,7 @@ async function resolvePlay(playKey) {
   }
 }
 
-// ========== 多线路资源加载（命名最终修复） ==========
+// ========== 多线路资源加载（最终命名修复） ==========
 async function getLineStreams(id, epIdx) {
   const detail = await getVideoDetail(id);
   if (!detail || !detail.lines.length) return [];
@@ -491,21 +480,12 @@ async function getLineStreams(id, epIdx) {
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
     if (playRes && playRes.videoUrl) {
-      // 命名优先级：网站导航名 > 映射友好名 > from原始值
-      let showName = line.name || "";
-      
-      if (!showName) {
-        // 网站没提取到，用映射表
-        if (playRes.from) {
-          showName = SOURCE_NAME_MAP[playRes.from] || playRes.from;
-        }
-      }
-      
-      // 最后兜底
-      if (!showName) showName = `线路${i + 1}`;
+      // 命名：优先用网站原生线路名（蓝光2k/至臻4k/自营t）
+      // 网站提取不到才用 from 原始值兜底
+      let showName = line.name || playRes.from || `线路${i + 1}`;
 
       streams.push({
-        name: showName, // 主标题：线路名（蓝光2k/至臻4k等）
+        name: showName, // 主标题：网站原生线路名
         description: `第${epIdx + 1}集`, // 副标题：集数
         url: playRes.videoUrl,
         customHeaders: { Referer: BASE + "/", "User-Agent": UA },
