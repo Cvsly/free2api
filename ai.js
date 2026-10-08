@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.1.0",
+  version: "2.2.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：全6条线路高清播放，支持分类筛选、热门排序、聚合搜索",
+    "枫叶4K影院（maihaolian.com）：全6条线路高清直链播放，支持分类筛选、热门排序、聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -83,16 +83,16 @@ const BASE = "https://maihaolian.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PLATFORM_URLS = { qq: "/label/qq.html", youku: "/label/youku.html", bli: "/label/bli.html" };
 const PARSE_MAP = {
-  co: "https://zzrs.mfdyvip.com/player/?url=",
-  BBA: "https://zzrs.mfdyvip.com/player/?url=",
-  vwnet: "https://zzrs.mfdyvip.com/player/?url=",
-  YYNB: "https://zzrs.mfdyvip.com/player/?url=",
-  qiyi: "https://zzrs.mfdyvip.com/player/?url=",
-  bilibili: "https://zzrs.mfdyvip.com/player/?url=",
-  qq: "https://zzrs.mfdyvip.com/player/?url=",
-  youku: "https://zzrs.mfdyvip.com/player/?url=",
-  JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
-  JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
+  co: "https://zzrs.mfdyvip.com/",
+  BBA: "https://zzrs.mfdyvip.com/",
+  vwnet: "https://zzrs.mfdyvip.com/",
+  YYNB: "https://zzrs.mfdyvip.com/",
+  qiyi: "https://zzrs.mfdyvip.com/",
+  bilibili: "https://zzrs.mfdyvip.com/",
+  qq: "https://zzrs.mfdyvip.com/",
+  youku: "https://zzrs.mfdyvip.com/",
+  JD4K: "https://fgsrg.hzqingshan.com/",
+  JD2K: "https://fgsrg.hzqingshan.com/",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 6;
@@ -105,15 +105,15 @@ async function httpGet(url, params) {
   return res.data;
 }
 
-async function httpPost(url, bodyObj) {
+async function httpPost(url, bodyObj, headers) {
   const body = Object.keys(bodyObj)
     .map(k => k + "=" + encodeURIComponent(bodyObj[k]))
     .join("&");
   const res = await Widget.http.post(url, body, {
     headers: {
       "User-Agent": UA,
-      Referer: BASE + "/",
       "Content-Type": "application/x-www-form-urlencoded",
+      ...(headers || {}),
     },
   });
   return res.data;
@@ -243,7 +243,6 @@ function isEpisodeTitle(name) {
 function extractSourceNames(html) {
   const map = {};
 
-  // 1. 提取导航标签名（从 .anthology-tab 的 <a class="swiper-slide">）
   const navBlockMatch = html.match(/anthology-tab[\s\S]*?swiper-wrapper[\s\S]*?<\/div>/i);
   let navNames = [];
   if (navBlockMatch) {
@@ -255,7 +254,6 @@ function extractSourceNames(html) {
     }
   }
 
-  // 2. 按box出现顺序提取sid
   const sids = [];
   const boxRe = /anthology-list-box[^>]*>[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
   let m;
@@ -263,7 +261,6 @@ function extractSourceNames(html) {
     if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
   }
 
-  // 3. 按顺序一一对应
   for (let i = 0; i < sids.length && i < navNames.length; i++) {
     map[sids[i]] = navNames[i];
   }
@@ -362,7 +359,38 @@ async function loadDetail(link) {
   }
 }
 
-// ========== 核心：区分直链/解析线路，返回不同格式 ==========
+// ========== 核心：解密加密线路，提取真实m3u8地址 ==========
+async function extractRealVideoUrl(parseBase, encryptedUrl) {
+  try {
+    // 第一步：请求解析页面，提取data-u和data-te
+    const pageUrl = parseBase + "player/?url=" + encodeURIComponent(encryptedUrl);
+    const pageHtml = await httpGet(pageUrl, null, { Referer: BASE + "/" });
+    
+    const dataUMatch = pageHtml.match(/data-u="([^"]+)"/);
+    const dataTEMatch = pageHtml.match(/data-te="([^"]+)"/);
+    if (!dataUMatch || !dataTEMatch) return null;
+    
+    const dataU = dataUMatch[1];
+    const dataTE = dataTEMatch[1];
+    
+    // 第二步：POST到mplayer.php获取真实地址
+    const apiUrl = parseBase + "player/mplayer.php";
+    const apiResult = await httpPost(apiUrl, {
+      url: dataU,
+      token: dataTE,
+    }, { Referer: pageUrl });
+    
+    const json = typeof apiResult === "string" ? JSON.parse(apiResult) : apiResult;
+    if (json && json.code === 200 && json.url) {
+      return json.url;
+    }
+    return null;
+  } catch (e) {
+    console.error("[extractRealVideoUrl]", e.message);
+    return null;
+  }
+}
+
 async function resolvePlay(playKey) {
   try {
     const html = await httpGet(BASE + "/play/" + playKey + ".html");
@@ -372,40 +400,26 @@ async function resolvePlay(playKey) {
     const url = pj.url || "";
     const from = pj.from || "";
 
-    // 判断是直链还是解析地址
-    let stream = null;
+    let realUrl = null;
 
     if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
-      // 直链视频：直接返回，不需要解析
-      stream = {
-        url: url,
-        parse: 0,  // 不需要二次解析
-        headers: {
-          "User-Agent": UA,
-          "Referer": BASE + "/",
-        },
-      };
+      // 直链视频：直接返回
+      realUrl = url;
     } else if (PARSE_MAP[from]) {
-      // 加密解析线路：返回解析页面URL，让Forward内置解析器处理
-      const parseUrl = PARSE_MAP[from] + url;
-      stream = {
-        url: parseUrl,
-        parse: 1,  // 关键：标记为需要网页解析
-        headers: {
-          "User-Agent": UA,
-          "Referer": BASE + "/",
-        },
-        ext: {
-          flag: from,  // 来源标识，帮助解析器识别
-        },
-      };
+      // 加密线路：调用解密API获取真实地址
+      realUrl = await extractRealVideoUrl(PARSE_MAP[from], url);
     }
 
-    if (!stream) return null;
+    if (!realUrl) return null;
 
     return {
+      id: "play:" + playKey,
+      type: "url",
+      title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
+      link: "play:" + playKey,
+      videoUrl: realUrl,
       from: from,
-      stream: stream,
+      playerType: "system",
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -425,17 +439,17 @@ async function getLineStreams(id, epIdx) {
     if (!nid) continue;
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-    // 只要resolvePlay返回了就加入列表
-    if (playRes && playRes.stream) {
+    if (playRes && playRes.videoUrl) {
       let showName = line.name || playRes.from || `线路${i + 1}`;
 
       streams.push({
         name: showName,
         description: `第${epIdx + 1}集`,
-        url: playRes.stream.url,
-        parse: playRes.stream.parse,
-        headers: playRes.stream.headers,
-        ext: playRes.stream.ext || {},
+        url: playRes.videoUrl,
+        headers: {
+          "User-Agent": UA,
+          "Referer": BASE + "/",
+        },
       });
     }
   }
@@ -453,7 +467,6 @@ async function loadResource(params = {}) {
       return await getLineStreams(id, epIdx);
     }
 
-    // 聚合搜索场景
     const multiSource = params.multiSource;
     const rawTitle = String(params.seriesName || params.title || "").trim();
     const wantEpisode = parseInt(params.episode, 10) || 0;
