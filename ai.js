@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.5.0",
+  version: "1.6.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路播放支持，内置流媒体聚合搜索",
+    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路高清播放，内置流媒体聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -52,7 +52,7 @@ WidgetMetadata = {
         { name: "page", title: "页码", type: "page" },
       ],
     },
-    // ===== 频道列表（支持分类与“更新时间”排序） =====
+    // ===== 频道列表 =====
     {
       id: "vodMovie",
       title: "电影",
@@ -246,7 +246,7 @@ const PARSE_MAP = {
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
-// 聚合搜索最多返回线路数，避免请求过多
+// 聚合搜索最多返回线路数
 const MAX_AGG_LINES = 3;
 
 async function httpGet(url, params) {
@@ -340,13 +340,10 @@ async function apiUid() {
   return uid;
 }
 
-/*
- * 支持按更新时间 (by=time) 排序的频道数据接口
- */
 async function loadVodList(params = {}) {
   try {
     const page = Number(params.page || 1);
-    const by = params.by || "time"; // 默认按更新时间排序
+    const by = params.by || "time";
     const time = Math.floor(Date.now() / 1000);
     const uid = await apiUid();
     
@@ -354,7 +351,7 @@ async function loadVodList(params = {}) {
       mid: 1,
       tid: params.tid || "",
       page: page,
-      by: by, // 增加 by 排序字段 (time:更新时间, hits:点击量, score:评分)
+      by: by,
       time: time,
       key: md5("DS" + time + uid),
     });
@@ -368,41 +365,6 @@ async function loadVodList(params = {}) {
     return list;
   } catch (error) {
     console.error("[loadVodList] 失败:", error.message || error);
-    throw error;
-  }
-}
-
-async function loadBanner(params = {}) {
-  try {
-    const html = await httpGet(BASE + "/");
-    const items = [];
-    const seen = {};
-    const re = /<a href="\/detail\/(\d+)\.html">([\s\S]*?)<\/a>/g;
-    let m;
-    while ((m = re.exec(html))) {
-      const id = m[1];
-      const body = m[2];
-      if (seen[id] || (body.indexOf("slide-time-bj") < 0 && body.indexOf("slide-time-img") < 0)) continue;
-      const tm = body.match(/slide-info-types"><span>([^<]+)<\/span>/);
-      if (!tm) continue;
-      seen[id] = true;
-      const bg = body.match(/background-image:\s*url\(([^)]+)\)/);
-      const score = body.match(/ds-shoucang fa"><\/i>([\d.]+)/);
-      const infos = [];
-      const ire = /<span>([^<]{1,20})<\/span>/g;
-      let im;
-      while ((im = ire.exec(body))) {
-        if (im[1] !== tm[1] && infos.length < 3) infos.push(im[1]);
-      }
-      const item = makeItem(id, tm[1], "", infos.join(" · "));
-      if (bg) item.backdropPath = decodeHtml(bg[1]);
-      if (score) item.rating = Number(score[1]);
-      items.push(item);
-    }
-    if (!items.length) throw new Error("热播榜为空");
-    return items;
-  } catch (error) {
-    console.error("[loadBanner] 失败:", error.message || error);
     throw error;
   }
 }
@@ -448,13 +410,53 @@ async function search(params = {}) {
 async function loadDetail(link) {
   const key = String(link);
   try {
-    if (key.indexOf("play:") === 0) return await resolvePlay(key.slice(5));
+    // 兼容旧版单线路播放链接
+    if (key.indexOf("play:") === 0 && key.indexOf(":") !== key.lastIndexOf(":")) {
+      return await resolvePlay(key.slice(5));
+    }
     const id = key.replace("detail:", "");
     return await loadVodDetail(id, key);
   } catch (error) {
     console.error("[loadDetail] 失败:", link, error.message || error);
     throw error;
   }
+}
+
+/**
+ * 解析详情页所有线路信息
+ * 返回 { sid: 线路id, name: 线路名, eps: [nid] } 数组
+ */
+async function getAllLines(id) {
+  const html = await httpGet(BASE + "/detail/" + id + ".html");
+  if (!html || html.indexOf("slide-info-title") < 0) return [];
+
+  const groups = {};
+  const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
+  let em;
+  while ((em = pre.exec(html))) {
+    const sid = em[1];
+    const nid = Number(em[2]);
+    if (!groups[sid]) groups[sid] = [];
+    groups[sid].push(nid);
+  }
+
+  const lines = [];
+  const sids = Object.keys(groups);
+  for (let i = 0; i < sids.length; i++) {
+    const sid = sids[i];
+    const info = await probePlay(id, sid, 1);
+    if (!info) continue;
+    const eps = groups[sid].sort((a, b) => a - b);
+    lines.push({
+      sid: sid,
+      name: info.name || `线路${i + 1}`,
+      eps: eps,
+      direct: info.direct || false,
+    });
+  }
+  // 直链线路优先排序
+  lines.sort((a, b) => (b.direct ? 1 : 0) - (a.direct ? 1 : 0));
+  return lines;
 }
 
 async function loadVodDetail(id, link) {
@@ -476,51 +478,22 @@ async function loadVodDetail(id, link) {
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
 
-  // 解析所有线路和集数
-  const groups = {};
-  const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
-  let em;
-  while ((em = pre.exec(html))) {
-    const sid = em[1];
-    const nid = Number(em[2]);
-    if (!groups[sid]) groups[sid] = {};
-    groups[sid][nid] = true;
-  }
+  // 获取所有可用线路
+  const lines = await getAllLines(id);
+  if (!lines.length) throw new Error("未找到可用播放线路");
 
-  const sids = Object.keys(groups);
-  if (!sids.length) throw new Error("未找到播放线路");
+  // 主线路：第一条（直链优先）
+  const primary = lines[0];
+  const isMovie = primary.eps.length === 1;
 
-  // ===== 优化：探测所有可用线路，生成全线路集数列表 =====
-  const episodeItems = [];
-  let lineCount = 0;
-  for (let i = 0; i < sids.length; i++) {
-    const sid = sids[i];
-    // 探测线路可用性
-    const info = await probePlay(id, sid, 1);
-    if (!info) continue;
+  // 生成纯集数列表，不带线路名
+  const episodeItems = primary.eps.map((nid, idx) => ({
+    id: `play:${id}:${idx}`,
+    type: "url",
+    title: isMovie ? "正片" : `第${idx + 1}集`,
+    link: `play:${id}:${idx}`,
+  }));
 
-    lineCount++;
-    const lineName = info.name || `线路${lineCount}`;
-    const epNums = Object.keys(groups[sid])
-      .map(Number)
-      .sort((a, b) => a - b);
-    if (!epNums.length) continue;
-
-    const isMovie = epNums.length === 1;
-    // 生成该线路所有集数，标题带线路名
-    epNums.forEach(n => {
-      episodeItems.push({
-        id: `play:${id}-${sid}-${n}`,
-        type: "url",
-        title: isMovie ? `[${lineName}] 正片` : `[${lineName}] 第${n}集`,
-        link: `play:${id}-${sid}-${n}`,
-      });
-    });
-  }
-
-  if (!episodeItems.length) throw new Error("无可用播放线路");
-
-  // 相关推荐
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
 
@@ -533,7 +506,7 @@ async function loadVodDetail(id, link) {
     description: description,
     episodeItems: episodeItems,
     relatedItems: relatedItems,
-    durationText: (infos["连载"] || "") + ` · 共${lineCount}条线路`,
+    durationText: (infos["连载"] || "") + ` · 共${lines.length}条线路`,
   };
   if (infos["更新"]) item.releaseDate = infos["更新"];
   return item;
@@ -600,25 +573,59 @@ function scoreMatch(rawTitle, wantBaseNorm) {
   return -1;
 }
 
+/**
+ * 根据作品id和集数索引，获取所有线路的播放地址
+ */
+async function getLineStreams(id, epIdx) {
+  const lines = await getAllLines(id);
+  if (!lines.length) return [];
+
+  const streams = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nid = line.eps[epIdx];
+    if (!nid) continue;
+
+    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+    if (playRes && playRes.videoUrl) {
+      streams.push({
+        name: `枫叶影院 - ${line.name}`,
+        description: line.direct ? "直链播放" : "解析播放",
+        url: playRes.videoUrl,
+        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+      });
+    }
+  }
+  return streams;
+}
+
 async function loadResource(params = {}) {
   try {
     const linkStr = String(params.link || "").trim();
-    // 直接播放链接场景
+
+    // ===== 标准播放链路：点击集数后加载所有线路 =====
     if (linkStr.indexOf("play:") === 0) {
+      const parts = linkStr.slice(5).split(":");
+      // 新格式 play:id:epIdx
+      if (parts.length === 2) {
+        const id = parts[0];
+        const epIdx = parseInt(parts[1], 10) || 0;
+        return await getLineStreams(id, epIdx);
+      }
+      // 兼容旧格式 play:id-sid-nid（单线路）
       const playItem = await resolvePlay(linkStr.slice(5));
       if (playItem && playItem.videoUrl) {
-        return [
-          {
-            name: "枫叶影院",
-            description: playItem.title || "播放链接",
-            url: playItem.videoUrl,
-            customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-          },
-        ];
+        return [{
+          name: "枫叶影院",
+          description: playItem.title || "播放链接",
+          url: playItem.videoUrl,
+          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+        }];
       }
       return [];
     }
 
+    // ===== 聚合搜索场景 =====
     const multiSource = params.multiSource;
     const rawTitle = String(params.seriesName || params.title || "").trim();
     const wantEpisode = parseInt(params.episode, 10) || 0;
@@ -629,9 +636,7 @@ async function loadResource(params = {}) {
 
     const wantBaseNorm = normalizeName(stripTitleMeta(rawTitle));
     const searchItems = await search({ keyword: rawTitle });
-    if (!searchItems.length) {
-      return [];
-    }
+    if (!searchItems.length) return [];
 
     let best = null;
     let bestScore = -1;
@@ -642,222 +647,64 @@ async function loadResource(params = {}) {
         best = searchItems[i];
       }
     }
-    if (!best || bestScore < 0) {
-      best = searchItems[0];
-    }
+    if (!best || bestScore < 0) best = searchItems[0];
 
-    const vodDetail = await loadVodDetail(best.id, "detail:" + best.id);
-    if (!vodDetail || !vodDetail.episodeItems || !vodDetail.episodeItems.length) {
-      return [];
-    }
-
-    // 过滤出真正的播放集数（排除占位项）
-    const allEpisodes = vodDetail.episodeItems.filter(ep => ep.link && ep.link.startsWith("play:"));
-    if (!allEpisodes.length) return [];
-
-    // ===== 优化：匹配多条线路的目标集数，返回多播放源 =====
-    const targetEps = [];
-    const seenLines = new Set();
-
-    if (wantEpisode > 0) {
-      // 指定集数：找所有线路中对应该集的项
-      allEpisodes.forEach(ep => {
-        const epNum = parseInt((ep.title.match(/\d+/) || [])[0], 10);
-        const parts = ep.link.replace("play:", "").split("-");
-        const sid = parts[1];
-        if (epNum === wantEpisode && !seenLines.has(sid)) {
-          seenLines.add(sid);
-          targetEps.push(ep);
-        }
-      });
-      // 精确匹配不足时，降级取前N条
-      if (targetEps.length === 0) {
-        allEpisodes.forEach(ep => {
-          const parts = ep.link.replace("play:", "").split("-");
-          const sid = parts[1];
-          if (!seenLines.has(sid)) {
-            seenLines.add(sid);
-            targetEps.push(ep);
-          }
-        });
-      }
-    } else {
-      // 未指定集数：每条线路取第一集
-      allEpisodes.forEach(ep => {
-        const parts = ep.link.replace("play:", "").split("-");
-        const sid = parts[1];
-        if (!seenLines.has(sid)) {
-          seenLines.add(sid);
-          targetEps.push(ep);
-        }
-      });
-    }
-
-    // 限制最大返回线路数，避免请求超时
-    const limitedEps = targetEps.slice(0, MAX_AGG_LINES);
-    const sources = [];
-
-    for (let i = 0; i < limitedEps.length; i++) {
-      const ep = limitedEps[i];
-      const playRes = await resolvePlay(ep.link.replace("play:", ""));
-      if (playRes && playRes.videoUrl) {
-        sources.push({
-          name: `枫叶影院 - 线路${i + 1}`,
-          description: ep.title,
-          url: playRes.videoUrl,
-          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-        });
-      }
-    }
-
-    // 全集数列表附加到第一个源（仅剧集且有多集时）
-    if (sources.length > 0 && wantEpisode === 0 && allEpisodes.length > 1) {
-      sources[0].episodeItems = allEpisodes.map(e => ({
-        title: e.title,
-        link: e.link,
-      }));
-    }
-
-    return sources;
+    const id = best.id.replace("detail:", "");
+    const streams = await getLineStreams(id, Math.max(0, wantEpisode - 1));
+    
+    // 限制聚合返回线路数
+    return streams.slice(0, MAX_AGG_LINES);
   } catch (error) {
-    console.error("[loadResource] 聚合搜索失败:", error.message || error);
+    console.error("[loadResource] 失败:", error.message || error);
     return [];
   }
 }
 
-// ===== MD5 签名算法（保留原版） =====
-function md5(s) {
-  return hex(md51(s));
-}
+// ===== MD5 签名算法 =====
+function md5(s) { return hex(md51(s)); }
 function md51(s) {
-  var n = s.length,
-    state = [1732584193, -271733879, -1732584194, 271733878],
-    i;
-  for (i = 64; i <= n; i += 64) {
-    md5cycle(state, md5blk(s.substring(i - 64, i)));
-  }
+  var n = s.length, state = [1732584193, -271733879, -1732584194, 271733878], i;
+  for (i = 64; i <= n; i += 64) md5cycle(state, md5blk(s.substring(i - 64, i)));
   s = s.substring(i - 64);
-  var tail = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  var tail = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
   for (i = 0; i < s.length; i++) tail[i >> 2] |= s.charCodeAt(i) << ((i % 4) << 3);
   tail[i >> 2] |= 0x80 << ((i % 4) << 3);
-  if (i > 55) {
-    md5cycle(state, tail);
-    for (i = 0; i < 16; i++) tail[i] = 0;
-  }
+  if (i > 55) { md5cycle(state, tail); for (i = 0; i < 16; i++) tail[i] = 0; }
   tail[14] = n * 8;
   md5cycle(state, tail);
   return state;
 }
 function md5cycle(x, k) {
-  var a = x[0],
-    b = x[1],
-    c = x[2],
-    d = x[3];
-  a = ff(a, b, c, d, k[0], 7, -680876936);
-  d = ff(d, a, b, c, k[1], 12, -389564586);
-  c = ff(c, d, a, b, k[2], 17, 606105819);
-  b = ff(b, c, d, a, k[3], 22, -1044525330);
-  a = ff(a, b, c, d, k[4], 7, -176418897);
-  d = ff(d, a, b, c, k[5], 12, 1200080426);
-  c = ff(c, d, a, b, k[6], 17, -1473231341);
-  b = ff(b, c, d, a, k[7], 22, -45705983);
-  a = ff(a, b, c, d, k[8], 7, 1770035416);
-  d = ff(d, a, b, c, k[9], 12, -1958414417);
-  c = ff(c, d, a, b, k[10], 17, -42063);
-  b = ff(b, c, d, a, k[11], 22, -1990404162);
-  a = ff(a, b, c, d, k[12], 7, 1804603682);
-  d = ff(d, a, b, c, k[13], 12, -40341101);
-  c = ff(c, d, a, b, k[14], 17, -1502002290);
-  b = ff(b, c, d, a, k[15], 22, 1236535329);
-  a = gg(a, b, c, d, k[1], 5, -165796510);
-  d = gg(d, a, b, c, k[6], 9, -1069501632);
-  c = gg(c, d, a, b, k[11], 14, 643717713);
-  b = gg(b, c, d, a, k[0], 20, -373897302);
-  a = gg(a, b, c, d, k[5], 5, -701558691);
-  d = gg(d, a, b, c, k[10], 9, 38016083);
-  c = gg(c, d, a, b, k[15], 14, -660478335);
-  b = gg(b, c, d, a, k[4], 20, -405537848);
-  a = gg(a, b, c, d, k[9], 5, 568446438);
-  d = gg(d, a, b, c, k[14], 9, -1019803690);
-  c = gg(c, d, a, b, k[3], 14, -187363961);
-  b = gg(b, c, d, a, k[8], 20, 1163531501);
-  a = gg(a, b, c, d, k[13], 5, -1444681467);
-  d = gg(d, a, b, c, k[2], 9, -51403784);
-  c = gg(c, d, a, b, k[7], 14, 1735328473);
-  b = gg(b, c, d, a, k[12], 20, -1926607734);
-  a = hh(a, b, c, d, k[5], 4, -378558);
-  d = hh(d, a, b, c, k[8], 11, -2022574463);
-  c = hh(c, d, a, b, k[11], 16, 1839030562);
-  b = hh(b, c, d, a, k[14], 23, -35309556);
-  a = hh(a, b, c, d, k[1], 4, -1530992060);
-  d = hh(d, a, b, c, k[4], 11, 1272893353);
-  c = hh(c, d, a, b, k[7], 16, -155497632);
-  b = hh(b, c, d, a, k[10], 23, -1094730640);
-  a = hh(a, b, c, d, k[13], 4, 681279174);
-  d = hh(d, a, b, c, k[0], 11, -358537222);
-  c = hh(c, d, a, b, k[3], 16, -722521979);
-  b = hh(b, c, d, a, k[6], 23, 76029189);
-  a = hh(a, b, c, d, k[9], 4, -640364487);
-  d = hh(d, a, b, c, k[12], 11, -421815835);
-  c = hh(c, d, a, b, k[15], 16, 530742520);
-  b = hh(b, c, d, a, k[2], 23, -995338651);
-  a = ii(a, b, c, d, k[0], 6, -198630844);
-  d = ii(d, a, b, c, k[7], 10, 1126891415);
-  c = ii(c, d, a, b, k[14], 15, -1416354905);
-  b = ii(b, c, d, a, k[5], 21, -57434055);
-  a = ii(a, b, c, d, k[12], 6, 1700485571);
-  d = ii(d, a, b, c, k[3], 10, -1894986606);
-  c = ii(c, d, a, b, k[10], 15, -1051523);
-  b = ii(b, c, d, a, k[1], 21, -2054922799);
-  a = ii(a, b, c, d, k[8], 6, 1873313359);
-  d = ii(d, a, b, c, k[15], 10, -30611744);
-  c = ii(c, d, a, b, k[6], 15, -1560198380);
-  b = ii(b, c, d, a, k[13], 21, 1309151649);
-  a = ii(a, b, c, d, k[4], 6, -145523070);
-  d = ii(d, a, b, c, k[11], 10, -1120210379);
-  c = ii(c, d, a, b, k[2], 15, 718787259);
-  b = ii(b, c, d, a, k[9], 21, -343485551);
-  x[0] = add32(a, x[0]);
-  x[1] = add32(b, x[1]);
-  x[2] = add32(c, x[2]);
-  x[3] = add32(d, x[3]);
+  var a=x[0],b=x[1],c=x[2],d=x[3];
+  a=ff(a,b,c,d,k[0],7,-680876936);d=ff(d,a,b,c,k[1],12,-389564586);c=ff(c,d,a,b,k[2],17,606105819);b=ff(b,c,d,a,k[3],22,-1044525330);
+  a=ff(a,b,c,d,k[4],7,-176418897);d=ff(d,a,b,c,k[5],12,120080426);c=ff(c,d,a,b,k[6],17,-1473231341);b=ff(b,c,d,a,k[7],22,-45705983);
+  a=ff(a,b,c,d,k[8],7,1770035416);d=ff(d,a,b,c,k[9],12,-1958414417);c=ff(c,d,a,b,k[10],17,-42063);b=ff(b,c,d,a,k[11],22,-1990404162);
+  a=ff(a,b,c,d,k[12],7,1804603682);d=ff(d,a,b,c,k[13],12,-40341101);c=ff(c,d,a,b,k[14],17,-1502002290);b=ff(b,c,d,a,k[15],22,1236535329);
+  a=gg(a,b,c,d,k[1],5,-165796510);d=gg(d,a,b,c,k[6],9,-1069501632);c=gg(c,d,a,b,k[11],14,643717713);b=gg(b,c,d,a,k[0],20,-373897302);
+  a=gg(a,b,c,d,k[5],5,-701558691);d=gg(d,a,b,c,k[10],9,38016083);c=gg(c,d,a,b,k[15],14,-660478335);b=gg(b,c,d,a,k[4],20,-405537848);
+  a=gg(a,b,c,d,k[9],5,568446438);d=gg(d,a,b,c,k[14],9,-1019803690);c=gg(c,d,a,b,k[3],14,-187363961);b=gg(b,c,d,a,k[8],20,1163531501);
+  a=gg(a,b,c,d,k[13],5,-1444681467);d=gg(d,a,b,c,k[2],9,-51403784);c=gg(c,d,a,b,k[7],14,1735328473);b=gg(b,c,d,a,k[12],20,-1926607734);
+  a=hh(a,b,c,d,k[5],4,-378558);d=hh(d,a,b,c,k[8],11,-2022574463);c=hh(c,d,a,b,k[11],16,1839030562);b=hh(b,c,d,a,k[14],23,-35309556);
+  a=hh(a,b,c,d,k[1],4,-1530992060);d=hh(d,a,b,c,k[4],11,1272893353);c=hh(c,d,a,b,k[7],16,-155497632);b=hh(b,c,d,a,k[10],23,-1094730640);
+  a=hh(a,b,c,d,k[13],4,681279174);d=hh(d,a,b,c,k[0],11,-358537222);c=hh(c,d,a,b,k[3],16,-722521979);b=hh(b,c,d,a,k[6],23,76029189);
+  a=hh(a,b,c,d,k[9],4,-640364487);d=hh(d,a,b,c,k[12],11,-421815835);c=hh(c,d,a,b,k[15],16,530742520);b=hh(b,c,d,a,k[2],23,-995338651);
+  a=ii(a,b,c,d,k[0],6,-198630844);d=ii(d,a,b,c,k[7],10,1126891415);c=ii(c,d,a,b,k[14],15,-1416354905);b=ii(b,c,d,a,k[5],21,-57434055);
+  a=ii(a,b,c,d,k[12],6,1700485571);d=ii(d,a,b,c,k[3],10,-1894986606);c=ii(c,d,a,b,k[10],15,-1051523);b=ii(b,c,d,a,k[1],21,-2054922799);
+  a=ii(a,b,c,d,k[8],6,1873313359);d=ii(d,a,b,c,k[15],10,-30611744);c=ii(c,d,a,b,k[6],15,-1560198380);b=ii(b,c,d,a,k[13],21,1309151649);
+  a=ii(a,b,c,d,k[4],6,-145523070);d=ii(d,a,b,c,k[11],10,-1120210379);c=ii(c,d,a,b,k[2],15,718787259);b=ii(b,c,d,a,k[9],21,-343485551);
+  x[0]=add32(a,x[0]);x[1]=add32(b,x[1]);x[2]=add32(c,x[2]);x[3]=add32(d,x[3]);
 }
-function cmn(q, a, b, x, s, t) {
-  a = add32(add32(a, q), add32(x, t));
-  return add32((a << s) | (a >>> (32 - s)), b);
-}
-function ff(a, b, c, d, x, s, t) {
-  return cmn((b & c) | (~b & d), a, b, x, s, t);
-}
-function gg(a, b, c, d, x, s, t) {
-  return cmn((b & d) | (c & ~d), a, b, x, s, t);
-}
-function hh(a, b, c, d, x, s, t) {
-  return cmn(b ^ c ^ d, a, b, x, s, t);
-}
-function ii(a, b, c, d, x, s, t) {
-  return cmn(c ^ (b | ~d), a, b, x, s, t);
-}
+function cmn(q,a,b,x,s,t){a=add32(add32(a,q),add32(x,t));return add32((a<<s)|(a>>>(32-s)),b);}
+function ff(a,b,c,d,x,s,t){return cmn((b&c)|(~b&d),a,b,x,s,t);}
+function gg(a,b,c,d,x,s,t){return cmn((b&d)|(c&~d),a,b,x,s,t);}
+function hh(a,b,c,d,x,s,t){return cmn(b^c^d,a,b,x,s,t);}
+function ii(a,b,c,d,x,s,t){return cmn(c^(b|~d),a,b,x,s,t);}
 function md5blk(s) {
-  var md5blks = [],
-    i;
-  for (i = 0; i < 64; i += 4) {
-    md5blks[i >> 2] =
-      s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
-  }
+  var md5blks=[],i;
+  for(i=0;i<64;i+=4) md5blks[i>>2]=s.charCodeAt(i)+(s.charCodeAt(i+1)<<8)+(s.charCodeAt(i+2)<<16)+(s.charCodeAt(i+3)<<24);
   return md5blks;
 }
-var hex_chr = "0123456789abcdef".split("");
-function rhex(n) {
-  var s = "",
-    j;
-  for (j = 0; j < 4; j++) s += hex_chr[(n >> (j * 8 + 4)) & 0x0f] + hex_chr[(n >> (j * 8)) & 0x0f];
-  return s;
-}
-function hex(x) {
-  for (var i = 0; i < x.length; i++) x[i] = rhex(x[i]);
-  return x.join("");
-}
-function add32(a, b) {
-  return (a + b) & 0xffffffff;
-}
+var hex_chr="0123456789abcdef".split("");
+function rhex(n){var s="",j;for(j=0;j<4;j++)s+=hex_chr[(n>>(j*8+4))&0x0f]+hex_chr[(n>>(j*8))&0x0f];return s;}
+function hex(x){for(var i=0;i<x.length;i++)x[i]=rhex(x[i]);return x.join("");}
+function add32(a,b){return(a+b)&0xffffffff;}
