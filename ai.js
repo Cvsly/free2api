@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "1.6.2",
+  version: "2.0.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：支持按最新更新/热门排序、子分类筛选与下拉分页加载，全线路高清播放，内置流媒体聚合搜索",
+    "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -21,218 +21,67 @@ WidgetMetadata = {
     },
   ],
   modules: [
-    // ===== 平台专区 =====
-    {
-      id: "platformQQ",
-      title: "腾讯SVIP热映",
-      functionName: "loadPlatform",
-      cacheDuration: 3600,
-      params: [
-        { name: "platform", title: "平台", type: "constant", value: "qq" },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "platformYouku",
-      title: "优酷SVIP热映",
-      functionName: "loadPlatform",
-      cacheDuration: 3600,
-      params: [
-        { name: "platform", title: "平台", type: "constant", value: "youku" },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "platformBili",
-      title: "B站SVIP热映",
-      functionName: "loadPlatform",
-      cacheDuration: 3600,
-      params: [
-        { name: "platform", title: "平台", type: "constant", value: "bli" },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    // ===== 频道列表 =====
-    {
-      id: "vodMovie",
-      title: "电影",
-      functionName: "loadVodList",
-      cacheDuration: 1800,
-      params: [
-        {
-          name: "tid",
-          title: "分类",
-          type: "enumeration",
-          value: "1",
-          enumOptions: [
-            { title: "全部", value: "1" },
-            { title: "动作片", value: "6" },
-            { title: "喜剧片", value: "7" },
-            { title: "恐怖片", value: "8" },
-            { title: "科幻片", value: "9" },
-            { title: "爱情片", value: "10" },
-            { title: "剧情片", value: "11" },
-            { title: "战争片", value: "12" },
-            { title: "纪录片", value: "20" },
-          ],
-        },
-        {
-          name: "by",
-          title: "排序",
-          type: "enumeration",
-          value: "time",
-          enumOptions: [
-            { title: "最新更新", value: "time" },
-            { title: "热播排行", value: "hits" },
-            { title: "评分最高", value: "score" },
-          ],
-        },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "vodTV",
-      title: "电视剧",
-      functionName: "loadVodList",
-      cacheDuration: 1800,
-      params: [
-        {
-          name: "tid",
-          title: "分类",
-          type: "enumeration",
-          value: "2",
-          enumOptions: [
-            { title: "全部", value: "2" },
-            { title: "国产剧", value: "13" },
-            { title: "日韩剧", value: "15" },
-            { title: "海外剧", value: "16" },
-          ],
-        },
-        {
-          name: "by",
-          title: "排序",
-          type: "enumeration",
-          value: "time",
-          enumOptions: [
-            { title: "最新更新", value: "time" },
-            { title: "热播排行", value: "hits" },
-            { title: "评分最高", value: "score" },
-          ],
-        },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "vodAnime",
-      title: "动漫",
-      functionName: "loadVodList",
-      cacheDuration: 1800,
-      params: [
-        {
-          name: "tid",
-          title: "分类",
-          type: "enumeration",
-          value: "4",
-          enumOptions: [
-            { title: "全部", value: "4" },
-            { title: "国产动漫", value: "25" },
-            { title: "日韩动漫", value: "26" },
-          ],
-        },
-        {
-          name: "by",
-          title: "排序",
-          type: "enumeration",
-          value: "time",
-          enumOptions: [
-            { title: "最新更新", value: "time" },
-            { title: "热播排行", value: "hits" },
-            { title: "评分最高", value: "score" },
-          ],
-        },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "vodShow",
-      title: "综艺",
-      functionName: "loadVodList",
-      cacheDuration: 1800,
-      params: [
-        {
-          name: "tid",
-          title: "分类",
-          type: "enumeration",
-          value: "3",
-          enumOptions: [
-            { title: "全部", value: "3" },
-            { title: "大陆综艺", value: "21" },
-            { title: "日韩综艺", value: "22" },
-          ],
-        },
-        {
-          name: "by",
-          title: "排序",
-          type: "enumeration",
-          value: "time",
-          enumOptions: [
-            { title: "最新更新", value: "time" },
-            { title: "热播排行", value: "hits" },
-            { title: "评分最高", value: "score" },
-          ],
-        },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    {
-      id: "vodDuanju",
-      title: "热门短剧",
-      functionName: "loadVodList",
-      cacheDuration: 1800,
-      params: [
-        { name: "tid", title: "分类", type: "constant", value: "5" },
-        {
-          name: "by",
-          title: "排序",
-          type: "enumeration",
-          value: "time",
-          enumOptions: [
-            { title: "最新更新", value: "time" },
-            { title: "热播排行", value: "hits" },
-          ],
-        },
-        { name: "page", title: "页码", type: "page" },
-      ],
-    },
-    // ===== 聚合播放源提取 =====
-    {
-      id: "loadResource",
-      title: "枫叶影院播放源",
-      functionName: "loadResource",
-      type: "stream",
-      cacheDuration: 120,
-      params: [],
-    },
+    { id: "platformQQ", title: "腾讯SVIP热映", functionName: "loadPlatform", cacheDuration: 3600, params: [{ name: "platform", type: "constant", value: "qq" }, { name: "page", type: "page" }] },
+    { id: "platformYouku", title: "优酷SVIP热映", functionName: "loadPlatform", cacheDuration: 3600, params: [{ name: "platform", type: "constant", value: "youku" }, { name: "page", type: "page" }] },
+    { id: "platformBili", title: "B站SVIP热映", functionName: "loadPlatform", cacheDuration: 3600, params: [{ name: "platform", type: "constant", value: "bli" }, { name: "page", type: "page" }] },
+    { id: "vodMovie", title: "电影", functionName: "loadVodList", cacheDuration: 1800, params: [
+      { name: "tid", type: "enumeration", value: "1", enumOptions: [
+        { title: "全部", value: "1" }, { title: "动作片", value: "6" }, { title: "喜剧片", value: "7" },
+        { title: "恐怖片", value: "8" }, { title: "科幻片", value: "9" }, { title: "爱情片", value: "10" },
+        { title: "剧情片", value: "11" }, { title: "战争片", value: "12" }, { title: "纪录片", value: "20" },
+      ]},
+      { name: "by", type: "enumeration", value: "time", enumOptions: [
+        { title: "最新更新", value: "time" }, { title: "热播排行", value: "hits" }, { title: "评分最高", value: "score" },
+      ]},
+      { name: "page", type: "page" },
+    ]},
+    { id: "vodTV", title: "电视剧", functionName: "loadVodList", cacheDuration: 1800, params: [
+      { name: "tid", type: "enumeration", value: "2", enumOptions: [
+        { title: "全部", value: "2" }, { title: "国产剧", value: "13" }, { title: "日韩剧", value: "15" }, { title: "海外剧", value: "16" },
+      ]},
+      { name: "by", type: "enumeration", value: "time", enumOptions: [
+        { title: "最新更新", value: "time" }, { title: "热播排行", value: "hits" }, { title: "评分最高", value: "score" },
+      ]},
+      { name: "page", type: "page" },
+    ]},
+    { id: "vodAnime", title: "动漫", functionName: "loadVodList", cacheDuration: 1800, params: [
+      { name: "tid", type: "enumeration", value: "4", enumOptions: [
+        { title: "全部", value: "4" }, { title: "国产动漫", value: "25" }, { title: "日韩动漫", value: "26" },
+      ]},
+      { name: "by", type: "enumeration", value: "time", enumOptions: [
+        { title: "最新更新", value: "time" }, { title: "热播排行", value: "hits" }, { title: "评分最高", value: "score" },
+      ]},
+      { name: "page", type: "page" },
+    ]},
+    { id: "vodShow", title: "综艺", functionName: "loadVodList", cacheDuration: 1800, params: [
+      { name: "tid", type: "enumeration", value: "3", enumOptions: [
+        { title: "全部", value: "3" }, { title: "大陆综艺", value: "21" }, { title: "日韩综艺", value: "22" },
+      ]},
+      { name: "by", type: "enumeration", value: "time", enumOptions: [
+        { title: "最新更新", value: "time" }, { title: "热播排行", value: "hits" }, { title: "评分最高", value: "score" },
+      ]},
+      { name: "page", type: "page" },
+    ]},
+    { id: "vodDuanju", title: "热门短剧", functionName: "loadVodList", cacheDuration: 1800, params: [
+      { name: "tid", type: "constant", value: "5" },
+      { name: "by", type: "enumeration", value: "time", enumOptions: [
+        { title: "最新更新", value: "time" }, { title: "热播排行", value: "hits" },
+      ]},
+      { name: "page", type: "page" },
+    ]},
+    { id: "loadResource", title: "播放资源", functionName: "loadResource", type: "stream", cacheDuration: 120, params: [] },
   ],
   search: {
     title: "搜索",
     functionName: "search",
-    params: [
-      { name: "keyword", title: "关键词", type: "input" },
-      { name: "page", title: "页码", type: "page" },
-    ],
+    params: [{ name: "keyword", type: "input" }, { name: "page", type: "page" }],
   },
 };
 
+// ========== 常量配置 ==========
 const BASE = "https://maihaolian.com";
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const PLATFORM_URLS = {
-  qq: "/label/qq.html",
-  youku: "/label/youku.html",
-  bli: "/label/bli.html",
-  duanju: "/label/duanju-1.html",
-};
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const PLATFORM_URLS = { qq: "/label/qq.html", youku: "/label/youku.html", bli: "/label/bli.html" };
 const PARSE_MAP = {
   co: "https://zzrs.mfdyvip.com/player/?url=",
   BBA: "https://zzrs.mfdyvip.com/player/?url=",
@@ -246,8 +95,9 @@ const PARSE_MAP = {
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
-const MAX_AGG_LINES = 3;
+const MAX_AGG_LINES = 5;
 
+// ========== 基础工具函数 ==========
 async function httpGet(url, params) {
   const opt = { headers: { "User-Agent": UA, Referer: BASE + "/" } };
   if (params) opt.params = params;
@@ -257,9 +107,7 @@ async function httpGet(url, params) {
 
 async function httpPost(url, bodyObj) {
   const body = Object.keys(bodyObj)
-    .map(function (k) {
-      return k + "=" + encodeURIComponent(bodyObj[k]);
-    })
+    .map(k => k + "=" + encodeURIComponent(bodyObj[k]))
     .join("&");
   const res = await Widget.http.post(url, body, {
     headers: {
@@ -274,12 +122,9 @@ async function httpPost(url, bodyObj) {
 function decodeHtml(s) {
   if (!s) return "";
   return String(s)
-    .replace(/&amp;/g, "&")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
 function stripTags(s) {
@@ -287,12 +132,7 @@ function stripTags(s) {
 }
 
 function makeItem(id, title, poster, remark) {
-  const item = {
-    id: String(id),
-    type: "url",
-    title: decodeHtml(title),
-    link: "detail:" + id,
-  };
+  const item = { id: String(id), type: "url", title: decodeHtml(title), link: "detail:" + id };
   if (poster) item.posterPath = decodeHtml(poster);
   if (remark) item.durationText = stripTags(remark);
   return item;
@@ -308,10 +148,8 @@ function vodToItem(v) {
 }
 
 function parseCards(html) {
-  const items = [];
-  const seen = {};
-  const re =
-    /<a[^>]*class="public-list-exp"[^>]*href="\/detail\/(\d+)\.html"[^>]*title="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  const items = [], seen = {};
+  const re = /<a[^>]*class="public-list-exp"[^>]*href="\/detail\/(\d+)\.html"[^>]*title="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = re.exec(html))) {
     const id = m[1];
@@ -339,6 +177,7 @@ async function apiUid() {
   return uid;
 }
 
+// ========== 列表/搜索接口 ==========
 async function loadVodList(params = {}) {
   try {
     const page = Number(params.page || 1);
@@ -347,24 +186,18 @@ async function loadVodList(params = {}) {
     const uid = await apiUid();
     
     const data = await httpPost(BASE + "/index.php/ajax/data", {
-      mid: 1,
-      tid: params.tid || "",
-      page: page,
-      by: by,
-      time: time,
+      mid: 1, tid: params.tid || "", page, by, time,
       key: md5("DS" + time + uid),
     });
     
     const json = typeof data === "string" ? JSON.parse(data) : data;
-    if (!json || Number(json.code) !== 1) {
-      throw new Error("接口返回异常: " + (json && json.msg ? json.msg : "空响应"));
-    }
+    if (!json || Number(json.code) !== 1) throw new Error("接口返回异常");
     const list = (json.list || []).map(vodToItem);
     if (!list.length) throw new Error("第 " + page + " 页已无数据");
     return list;
-  } catch (error) {
-    console.error("[loadVodList] 失败:", error.message || error);
-    throw error;
+  } catch (e) {
+    console.error("[loadVodList]", e.message);
+    throw e;
   }
 }
 
@@ -373,15 +206,15 @@ async function loadPlatform(params = {}) {
     const platform = params.platform || "qq";
     const page = parseInt(params.page || "1", 10);
     const basePath = PLATFORM_URLS[platform];
-    if (!basePath) throw new Error("未知平台: " + platform);
+    if (!basePath) throw new Error("未知平台");
     const path = page > 1 ? basePath.replace(/\.html$/, `-${page}.html`) : basePath;
     const html = await httpGet(BASE + path);
     const items = parseCards(html);
     if (!items.length) throw new Error("榜单为空");
     return items;
-  } catch (error) {
-    console.error("[loadPlatform] 失败:", error.message || error);
-    throw error;
+  } catch (e) {
+    console.error("[loadPlatform]", e.message);
+    throw e;
   }
 }
 
@@ -390,51 +223,28 @@ async function search(params = {}) {
     const keyword = (params.keyword || "").trim();
     const page = parseInt(params.page || "1", 10);
     if (!keyword) return [];
-    const data = await httpGet(BASE + "/index.php/ajax/suggest", {
-      mid: 1,
-      wd: keyword,
-      page: page,
-    });
+    const data = await httpGet(BASE + "/index.php/ajax/suggest", { mid: 1, wd: keyword, page });
     const json = typeof data === "string" ? JSON.parse(data) : data;
-    const list = (json && json.list) || [];
-    return list.map(function (v) {
-      return makeItem(v.id, v.name, v.pic, "");
-    });
-  } catch (error) {
-    console.error("[search] 失败:", error.message || error);
-    throw error;
+    return ((json && json.list) || []).map(v => makeItem(v.id, v.name, v.pic, ""));
+  } catch (e) {
+    console.error("[search]", e.message);
+    throw e;
   }
 }
 
-async function loadDetail(link) {
-  const key = String(link);
-  try {
-    if (key.indexOf("play:") === 0 && key.indexOf(":") !== key.lastIndexOf(":")) {
-      return await resolvePlay(key.slice(5));
-    }
-    const id = key.replace("detail:", "");
-    return await loadVodDetail(id, key);
-  } catch (error) {
-    console.error("[loadDetail] 失败:", link, error.message || error);
-    throw error;
-  }
-}
-
+// ========== 核心：统一详情解析（参考荐片 packs 结构） ==========
 /**
- * 从详情页提取线路名称映射（和网站前台显示完全一致）
- * 返回 { sid: 线路名 }
+ * 提取详情页线路名称映射（网站前台显示名）
  */
 function extractSourceNames(html) {
   const map = {};
-  // 匹配苹果CMS标准线路标签 <li data-sid="x">线路名</li>
   const re = /<li[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/li>/gi;
   let m;
   while ((m = re.exec(html))) {
     const sid = m[1];
-    const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim(); // 去掉集数后缀
+    const name = stripTags(m[2]).replace(/\(\d+\)$/, "").trim();
     if (name) map[sid] = name;
   }
-  // 兼容另一种结构 <span class="source" data-sid="x">线路名</span>
   if (Object.keys(map).length === 0) {
     const re2 = /<span[^>]*data-sid=["'](\d+)["'][^>]*>([\s\S]*?)<\/span>/gi;
     while ((m = re2.exec(html))) {
@@ -447,16 +257,32 @@ function extractSourceNames(html) {
 }
 
 /**
- * 获取所有可用线路（线路名使用网站前台显示名称）
+ * 统一获取视频详情+所有线路结构
+ * 返回 { title, poster, description, update, lines: [{name, sids, eps: [nid]}] }
+ * 完全对齐荐片 packs 数据结构
  */
-async function getAllLines(id) {
+async function getVideoDetail(id) {
   const html = await httpGet(BASE + "/detail/" + id + ".html");
-  if (!html || html.indexOf("slide-info-title") < 0) return [];
+  if (!html || html.indexOf("slide-info-title") < 0) return null;
 
-  // 提取前台线路名
+  // 基础信息
+  const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
+  const title = tm ? decodeHtml(tm[1]) : id;
+
+  const pm = html.match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
+  const poster = pm ? decodeHtml(pm[1]) : "";
+
+  const dm = html.match(/id="height_limit"[^>]*>([\s\S]*?)<\/div>/);
+  let description = dm ? stripTags(dm[1]) : "";
+  description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
+
+  const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
+  const update = um ? decodeHtml(um[1]).trim() : "";
+
+  // 线路名称映射
   const sourceNames = extractSourceNames(html);
 
-  // 提取所有线路的集数
+  // 解析所有线路+集数（对应荐片 packs）
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -467,144 +293,183 @@ async function getAllLines(id) {
     groups[sid].push(nid);
   }
 
+  // 组装线路数组
   const lines = [];
   const sids = Object.keys(groups);
   for (let i = 0; i < sids.length; i++) {
     const sid = sids[i];
-    // 优先用前台显示名，fallback 到解析源标识
-    const displayName = sourceNames[sid] || "";
-    const info = await probePlay(id, sid, 1);
-    if (!info) continue;
-
     const eps = groups[sid].sort((a, b) => a - b);
+    if (!eps.length) continue;
     lines.push({
       sid: sid,
-      name: displayName || info.name || `线路${i + 1}`,
-      from: info.from || "", // 保留解析源标识，用于拼接播放地址
+      name: sourceNames[sid] || `线路${i + 1}`,
       eps: eps,
-      direct: info.direct || false,
     });
   }
-  // 直链线路优先排序
-  lines.sort((a, b) => (b.direct ? 1 : 0) - (a.direct ? 1 : 0));
-  return lines;
+
+  // 按集数从多到少排序（和荐片一致，主线路取集数最多的）
+  lines.sort((a, b) => b.eps.length - a.eps.length);
+
+  return { title, poster, description, update, lines };
 }
 
-async function loadVodDetail(id, link) {
-  const html = await httpGet(BASE + "/detail/" + id + ".html");
-  if (!html || html.indexOf("slide-info-title") < 0) return null;
-
-  const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
-  const title = tm ? decodeHtml(tm[1]) : id;
-
-  const infos = {};
-  const ire = /<strong class="r6">([^<]+)<\/strong>([^<]*)</g;
-  let im;
-  while ((im = ire.exec(html))) infos[im[1].replace(/[::\s]/g, "")] = decodeHtml(im[2]).trim();
-
-  const pm = html.match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
-  const poster = pm ? decodeHtml(pm[1]) : "";
-
-  const dm = html.match(/id="height_limit"[^>]*>([\s\S]*?)<\/div>/);
-  let description = dm ? stripTags(dm[1]) : "";
-  description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
-
-  const lines = await getAllLines(id);
-  if (!lines.length) throw new Error("未找到可用播放线路");
-
-  const primary = lines[0];
-  const isMovie = primary.eps.length === 1;
-
-  const episodeItems = primary.eps.map((nid, idx) => ({
-    id: `play:${id}:${idx}`,
-    type: "url",
-    title: isMovie ? "正片" : `第${idx + 1}集`,
-    link: `play:${id}:${idx}`,
-  }));
-
-  const recIdx = html.indexOf("精彩推荐</h2>");
-  const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
-
-  const item = {
-    id: String(id),
-    type: "url",
-    title: title,
-    link: link,
-    posterPath: poster,
-    description: description,
-    episodeItems: episodeItems,
-    relatedItems: relatedItems,
-    durationText: (infos["连载"] || "") + ` · 共${lines.length}条线路`,
-  };
-  if (infos["更新"]) item.releaseDate = infos["更新"];
-  return item;
-}
-
-async function probePlay(id, sid, nid) {
+// ========== 详情页入口 ==========
+async function loadDetail(link) {
+  const key = String(link);
   try {
-    const html = await httpGet(BASE + "/play/" + id + "-" + sid + "-" + nid + ".html");
+    // 播放链接直接解析
+    if (key.indexOf("play:") === 0) {
+      return await resolvePlay(key.slice(5));
+    }
+    const id = key.replace("detail:", "");
+    const detail = await getVideoDetail(id);
+    if (!detail) return null;
+
+    const { title, poster, description, update, lines } = detail;
+    if (!lines.length) throw new Error("未找到播放线路");
+
+    // 主线路：集数最多的第一条（和荐片逻辑一致）
+    const primary = lines[0];
+    const isMovie = primary.eps.length === 1;
+
+    // 生成集数列表，link 格式 play:id#索引（对齐荐片格式）
+    const episodeItems = primary.eps.map((_, idx) => ({
+      id: `play:${id}#${idx}`,
+      type: "url",
+      title: isMovie ? "正片" : `第${idx + 1}集`,
+      link: `play:${id}#${idx}`,
+    }));
+
+    // 相关推荐
+    const recIdx = html.indexOf("精彩推荐</h2>");
+    const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
+
+    return {
+      id: String(id),
+      type: "url",
+      title,
+      link: key,
+      posterPath: poster,
+      description,
+      releaseDate: update,
+      episodeItems,
+      relatedItems,
+      durationText: `共${lines.length}条线路`,
+    };
+  } catch (e) {
+    console.error("[loadDetail]", link, e.message);
+    throw e;
+  }
+}
+
+// ========== 播放地址解析 ==========
+async function resolvePlay(playKey) {
+  try {
+    const html = await httpGet(BASE + "/play/" + playKey + ".html");
     const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
     if (!m) return null;
     const pj = JSON.parse(m[1]);
-    const direct = /^https?:\/\//.test(pj.url || "");
-    return { name: pj.from || "", from: pj.from, url: pj.url, direct: direct };
+    const url = pj.url || "";
+    let videoUrl;
+    if (/^https?:\/\//.test(url)) {
+      videoUrl = url;
+    } else if (PARSE_MAP[pj.from]) {
+      videoUrl = PARSE_MAP[pj.from] + url;
+    } else {
+      return null;
+    }
+    return {
+      id: "play:" + playKey,
+      type: "url",
+      title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
+      link: "play:" + playKey,
+      videoUrl,
+      playerType: "system",
+    };
   } catch (e) {
     return null;
   }
 }
 
-async function resolvePlay(playKey) {
-  const html = await httpGet(BASE + "/play/" + playKey + ".html");
-  const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
-  if (!m) return null;
-  const pj = JSON.parse(m[1]);
-  const url = pj.url || "";
-  let videoUrl;
-  if (/^https?:\/\//.test(url)) {
-    videoUrl = url;
-  } else if (PARSE_MAP[pj.from]) {
-    videoUrl = PARSE_MAP[pj.from] + url;
-  } else {
-    return null;
-  }
-  return {
-    id: "play:" + playKey,
-    type: "url",
-    title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
-    link: "play:" + playKey,
-    videoUrl: videoUrl,
-    from: pj.from || "",
-    playerType: "system",
-  };
-}
+// ========== 多线路资源加载（参考荐片多源返回） ==========
+async function loadResource(params = {}) {
+  try {
+    const linkStr = String(params.link || "").trim();
 
-/**
- * 获取指定集数的所有线路播放地址
- * 线路名使用网站前台显示名称
- */
-async function getLineStreams(id, epIdx) {
-  const lines = await getAllLines(id);
-  if (!lines.length) return [];
+    // 标准播放链路：play:id#索引
+    if (linkStr.indexOf("play:") === 0) {
+      const body = linkStr.slice(5);
+      const [id, epStr] = body.split("#");
+      const epIdx = parseInt(epStr || "0", 10);
 
-  const streams = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const nid = line.eps[epIdx];
-    if (!nid) continue;
+      const detail = await getVideoDetail(id);
+      if (!detail || !detail.lines.length) return [];
 
-    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-    if (playRes && playRes.videoUrl) {
-      streams.push({
-        name: line.name, // 网站前台显示的线路名
-        description: line.direct ? "直链播放" : "解析播放",
-        url: playRes.videoUrl,
-        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-      });
+      const streams = [];
+      for (let i = 0; i < detail.lines.length; i++) {
+        const line = detail.lines[i];
+        const nid = line.eps[epIdx];
+        if (!nid) continue;
+
+        const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+        if (playRes && playRes.videoUrl) {
+          streams.push({
+            name: line.name, // 网站原生线路名
+            description: `第${epIdx + 1}集`,
+            url: playRes.videoUrl,
+            customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+          });
+        }
+      }
+      return streams;
     }
+
+    // 聚合搜索场景
+    const multiSource = params.multiSource;
+    const rawTitle = String(params.seriesName || params.title || "").trim();
+    const wantEpisode = parseInt(params.episode, 10) || 0;
+
+    if (multiSource === "disabled" || !rawTitle) return [];
+
+    const wantBaseNorm = normalizeName(stripTitleMeta(rawTitle));
+    const searchItems = await search({ keyword: rawTitle });
+    if (!searchItems.length) return [];
+
+    let best = null, bestScore = -1;
+    for (let i = 0; i < searchItems.length; i++) {
+      const score = scoreMatch(searchItems[i].title, wantBaseNorm);
+      if (score > bestScore) { bestScore = score; best = searchItems[i]; }
+    }
+    if (!best || bestScore < 0) best = searchItems[0];
+
+    const id = best.id.replace("detail:", "");
+    const detail = await getVideoDetail(id);
+    if (!detail || !detail.lines.length) return [];
+
+    const epIdx = Math.max(0, wantEpisode - 1);
+    const streams = [];
+    for (let i = 0; i < Math.min(detail.lines.length, MAX_AGG_LINES); i++) {
+      const line = detail.lines[i];
+      const nid = line.eps[epIdx];
+      if (!nid) continue;
+      const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+      if (playRes && playRes.videoUrl) {
+        streams.push({
+          name: line.name,
+          description: wantEpisode ? `第${wantEpisode}集` : "正片",
+          url: playRes.videoUrl,
+          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+        });
+      }
+    }
+    return streams;
+  } catch (e) {
+    console.error("[loadResource]", e.message);
+    return [];
   }
-  return streams;
 }
 
+// ========== 辅助工具 ==========
 function stripTitleMeta(text) {
   return String(text || "")
     .replace(/[\(（][^\)）]*[\)）]/g, "")
@@ -629,65 +494,7 @@ function scoreMatch(rawTitle, wantBaseNorm) {
   return -1;
 }
 
-async function loadResource(params = {}) {
-  try {
-    const linkStr = String(params.link || "").trim();
-
-    if (linkStr.indexOf("play:") === 0) {
-      const parts = linkStr.slice(5).split(":");
-      if (parts.length === 2) {
-        const id = parts[0];
-        const epIdx = parseInt(parts[1], 10) || 0;
-        return await getLineStreams(id, epIdx);
-      }
-      // 兼容旧格式
-      const playItem = await resolvePlay(linkStr.slice(5));
-      if (playItem && playItem.videoUrl) {
-        return [{
-          name: playItem.from || "默认",
-          description: playItem.title || "播放链接",
-          url: playItem.videoUrl,
-          customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-        }];
-      }
-      return [];
-    }
-
-    // 聚合搜索场景
-    const multiSource = params.multiSource;
-    const rawTitle = String(params.seriesName || params.title || "").trim();
-    const wantEpisode = parseInt(params.episode, 10) || 0;
-
-    if (multiSource === "disabled" || !rawTitle) {
-      return [];
-    }
-
-    const wantBaseNorm = normalizeName(stripTitleMeta(rawTitle));
-    const searchItems = await search({ keyword: rawTitle });
-    if (!searchItems.length) return [];
-
-    let best = null;
-    let bestScore = -1;
-    for (let i = 0; i < searchItems.length; i++) {
-      const score = scoreMatch(searchItems[i].title, wantBaseNorm);
-      if (score > bestScore) {
-        bestScore = score;
-        best = searchItems[i];
-      }
-    }
-    if (!best || bestScore < 0) best = searchItems[0];
-
-    const id = best.id.replace("detail:", "");
-    const streams = await getLineStreams(id, Math.max(0, wantEpisode - 1));
-    
-    return streams.slice(0, MAX_AGG_LINES);
-  } catch (error) {
-    console.error("[loadResource] 失败:", error.message || error);
-    return [];
-  }
-}
-
-// ===== MD5 签名算法 =====
+// ========== MD5 签名算法 ==========
 function md5(s) { return hex(md51(s)); }
 function md51(s) {
   var n = s.length, state = [1732584193, -271733879, -1732584194, 271733878], i;
