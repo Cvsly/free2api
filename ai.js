@@ -1,10 +1,10 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.8",
+  version: "2.1.0",
   requiredVersion: "0.0.1",
   description:
-    "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
+    "枫叶4K影院（maihaolian.com）：全6条线路高清播放，支持分类筛选、热门排序、聚合搜索",
   author: "crush7s",
   site: "https://maihaolian.com",
   detailCacheDuration: 300,
@@ -362,7 +362,7 @@ async function loadDetail(link) {
   }
 }
 
-// ========== 核心修复：解析地址不再过滤，全部返回 ==========
+// ========== 核心：区分直链/解析线路，返回不同格式 ==========
 async function resolvePlay(playKey) {
   try {
     const html = await httpGet(BASE + "/play/" + playKey + ".html");
@@ -373,29 +373,39 @@ async function resolvePlay(playKey) {
     const from = pj.from || "";
 
     // 判断是直链还是解析地址
-    let videoUrl = null;
-    let playerType = "system";
+    let stream = null;
 
     if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
-      // 直链视频：直接用系统播放器
-      videoUrl = url;
-      playerType = "system";
+      // 直链视频：直接返回，不需要解析
+      stream = {
+        url: url,
+        parse: 0,  // 不需要二次解析
+        headers: {
+          "User-Agent": UA,
+          "Referer": BASE + "/",
+        },
+      };
     } else if (PARSE_MAP[from]) {
-      // 解析线路：直接返回解析播放器地址，用webview播放
-      videoUrl = PARSE_MAP[from] + url;
-      playerType = "web";
+      // 加密解析线路：返回解析页面URL，让Forward内置解析器处理
+      const parseUrl = PARSE_MAP[from] + url;
+      stream = {
+        url: parseUrl,
+        parse: 1,  // 关键：标记为需要网页解析
+        headers: {
+          "User-Agent": UA,
+          "Referer": BASE + "/",
+        },
+        ext: {
+          flag: from,  // 来源标识，帮助解析器识别
+        },
+      };
     }
 
-    if (!videoUrl) return null;
+    if (!stream) return null;
 
     return {
-      id: "play:" + playKey,
-      type: "url",
-      title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
-      link: "play:" + playKey,
-      videoUrl,
       from: from,
-      playerType: playerType,
+      stream: stream,
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -415,16 +425,17 @@ async function getLineStreams(id, epIdx) {
     if (!nid) continue;
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-    // 关键：只要resolvePlay返回了就加入列表，不再因为提取失败过滤
-    if (playRes && playRes.videoUrl) {
+    // 只要resolvePlay返回了就加入列表
+    if (playRes && playRes.stream) {
       let showName = line.name || playRes.from || `线路${i + 1}`;
 
       streams.push({
         name: showName,
         description: `第${epIdx + 1}集`,
-        url: playRes.videoUrl,
-        playerType: playRes.playerType || "system",
-        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
+        url: playRes.stream.url,
+        parse: playRes.stream.parse,
+        headers: playRes.stream.headers,
+        ext: playRes.stream.ext || {},
       });
     }
   }
