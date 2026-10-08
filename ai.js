@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.2.0",
+  version: "2.2.1",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全6条线路高清直链播放，支持分类筛选、热门排序、聚合搜索",
@@ -83,29 +83,29 @@ const BASE = "https://maihaolian.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PLATFORM_URLS = { qq: "/label/qq.html", youku: "/label/youku.html", bli: "/label/bli.html" };
 const PARSE_MAP = {
-  co: "https://zzrs.mfdyvip.com/",
-  BBA: "https://zzrs.mfdyvip.com/",
-  vwnet: "https://zzrs.mfdyvip.com/",
-  YYNB: "https://zzrs.mfdyvip.com/",
-  qiyi: "https://zzrs.mfdyvip.com/",
-  bilibili: "https://zzrs.mfdyvip.com/",
-  qq: "https://zzrs.mfdyvip.com/",
-  youku: "https://zzrs.mfdyvip.com/",
-  JD4K: "https://fgsrg.hzqingshan.com/",
-  JD2K: "https://fgsrg.hzqingshan.com/",
+  co: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  BBA: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  vwnet: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  YYNB: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  qiyi: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  bilibili: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  qq: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  youku: { base: "https://zzrs.mfdyvip.com/", referer: "https://zzrs.mfdyvip.com/" },
+  JD4K: { base: "https://fgsrg.hzqingshan.com/", referer: "https://fgsrg.hzqingshan.com/" },
+  JD2K: { base: "https://fgsrg.hzqingshan.com/", referer: "https://fgsrg.hzqingshan.com/" },
 };
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 6;
 
 // ========== 基础工具函数 ==========
-async function httpGet(url, params) {
-  const opt = { headers: { "User-Agent": UA, Referer: BASE + "/" } };
+async function httpGet(url, params, extraHeaders) {
+  const opt = { headers: { "User-Agent": UA, Referer: BASE + "/", ...(extraHeaders || {}) } };
   if (params) opt.params = params;
   const res = await Widget.http.get(url, opt);
   return res.data;
 }
 
-async function httpPost(url, bodyObj, headers) {
+async function httpPost(url, bodyObj, extraHeaders) {
   const body = Object.keys(bodyObj)
     .map(k => k + "=" + encodeURIComponent(bodyObj[k]))
     .join("&");
@@ -113,7 +113,7 @@ async function httpPost(url, bodyObj, headers) {
     headers: {
       "User-Agent": UA,
       "Content-Type": "application/x-www-form-urlencoded",
-      ...(headers || {}),
+      ...(extraHeaders || {}),
     },
   });
   return res.data;
@@ -360,10 +360,12 @@ async function loadDetail(link) {
 }
 
 // ========== 核心：解密加密线路，提取真实m3u8地址 ==========
-async function extractRealVideoUrl(parseBase, encryptedUrl) {
+async function extractRealVideoUrl(parseConfig, encryptedUrl) {
   try {
+    const { base, referer } = parseConfig;
+    
     // 第一步：请求解析页面，提取data-u和data-te
-    const pageUrl = parseBase + "player/?url=" + encodeURIComponent(encryptedUrl);
+    const pageUrl = base + "player/?url=" + encodeURIComponent(encryptedUrl);
     const pageHtml = await httpGet(pageUrl, null, { Referer: BASE + "/" });
     
     const dataUMatch = pageHtml.match(/data-u="([^"]+)"/);
@@ -374,7 +376,7 @@ async function extractRealVideoUrl(parseBase, encryptedUrl) {
     const dataTE = dataTEMatch[1];
     
     // 第二步：POST到mplayer.php获取真实地址
-    const apiUrl = parseBase + "player/mplayer.php";
+    const apiUrl = base + "player/mplayer.php";
     const apiResult = await httpPost(apiUrl, {
       url: dataU,
       token: dataTE,
@@ -382,7 +384,10 @@ async function extractRealVideoUrl(parseBase, encryptedUrl) {
     
     const json = typeof apiResult === "string" ? JSON.parse(apiResult) : apiResult;
     if (json && json.code === 200 && json.url) {
-      return json.url;
+      return {
+        url: json.url,
+        referer: referer,  // 关键：返回对应解析器的Referer
+      };
     }
     return null;
   } catch (e) {
@@ -401,13 +406,19 @@ async function resolvePlay(playKey) {
     const from = pj.from || "";
 
     let realUrl = null;
+    let referer = BASE + "/";  // 默认Referer是原站
 
     if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
-      // 直链视频：直接返回
+      // 直链视频：直接返回，Referer用原站
       realUrl = url;
+      referer = BASE + "/";
     } else if (PARSE_MAP[from]) {
-      // 加密线路：调用解密API获取真实地址
-      realUrl = await extractRealVideoUrl(PARSE_MAP[from], url);
+      // 加密线路：调用解密API获取真实地址，并使用解析器的Referer
+      const result = await extractRealVideoUrl(PARSE_MAP[from], url);
+      if (result) {
+        realUrl = result.url;
+        referer = result.referer;
+      }
     }
 
     if (!realUrl) return null;
@@ -420,6 +431,7 @@ async function resolvePlay(playKey) {
       videoUrl: realUrl,
       from: from,
       playerType: "system",
+      referer: referer,  // 关键：把Referer带回去
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -448,7 +460,7 @@ async function getLineStreams(id, epIdx) {
         url: playRes.videoUrl,
         headers: {
           "User-Agent": UA,
-          "Referer": BASE + "/",
+          "Referer": playRes.referer || BASE + "/",  // 关键：使用对应线路的Referer
         },
       });
     }
