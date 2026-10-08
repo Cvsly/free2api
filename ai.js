@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.7",
+  version: "2.0.8",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -232,7 +232,7 @@ async function search(params = {}) {
   }
 }
 
-// ========== 核心修复：按网站真实DOM结构提取线路名 ==========
+// ========== 线路名称提取 ==========
 function isEpisodeTitle(name) {
   if (!name) return true;
   return /^第\s*\d+\s*[集部季]$/.test(name) ||
@@ -240,18 +240,10 @@ function isEpisodeTitle(name) {
          /^\d+集$/.test(name);
 }
 
-/**
- * 从详情页提取线路名称映射
- * 网站真实结构：
- *   导航栏 .anthology-tab > .swiper-wrapper > 6个 <a class="swiper-slide">
- *   集数列表 .anthology-list > 6个 .anthology-list-box div
- *   第i个导航名 对应 第i个box里的播放链接的sid
- *   注意：导航顺序和sid数字顺序不一致！必须按box出现顺序对应
- */
 function extractSourceNames(html) {
   const map = {};
 
-  // 1. 提取导航标签名（从 .anthology-tab 区域的 <a class="swiper-slide">）
+  // 1. 提取导航标签名（从 .anthology-tab 的 <a class="swiper-slide">）
   const navBlockMatch = html.match(/anthology-tab[\s\S]*?swiper-wrapper[\s\S]*?<\/div>/i);
   let navNames = [];
   if (navBlockMatch) {
@@ -263,8 +255,7 @@ function extractSourceNames(html) {
     }
   }
 
-  // 2. 按box出现顺序提取sid（不是按sid数字排序！）
-  // 每个 .anthology-list-box 里的第一个播放链接的sid，就是这个box对应的线路
+  // 2. 按box出现顺序提取sid
   const sids = [];
   const boxRe = /anthology-list-box[^>]*>[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
   let m;
@@ -272,7 +263,7 @@ function extractSourceNames(html) {
     if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
   }
 
-  // 3. 按顺序一一对应：第i个导航名 → 第i个box的sid
+  // 3. 按顺序一一对应
   for (let i = 0; i < sids.length && i < navNames.length; i++) {
     map[sids[i]] = navNames[i];
   }
@@ -294,10 +285,8 @@ async function getVideoDetail(id) {
   const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
-  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t / 自营y / 自营r）
   const sourceNames = extractSourceNames(html);
 
-  // 解析所有线路+集数
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -308,7 +297,6 @@ async function getVideoDetail(id) {
     groups[sid].push(nid);
   }
 
-  // 组装线路数组
   const lines = [];
   const sids = Object.keys(groups);
   for (let i = 0; i < sids.length; i++) {
@@ -317,14 +305,12 @@ async function getVideoDetail(id) {
     if (!eps.length) continue;
     lines.push({
       sid: sid,
-      name: sourceNames[sid] || "", // 网站原生名
+      name: sourceNames[sid] || "",
       eps: eps,
     });
   }
-  // 按集数从多到少排序
   lines.sort((a, b) => b.eps.length - a.eps.length);
 
-  // 相关推荐
   const recIdx = html.indexOf("精彩推荐</h2>");
   const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
 
@@ -376,43 +362,7 @@ async function loadDetail(link) {
   }
 }
 
-// ========== 播放地址解析 ==========
-async function extractRealVideo(playerUrl) {
-  try {
-    const html = await Widget.http.get(playerUrl, {
-      headers: {
-        "User-Agent": UA,
-        Referer: BASE + "/",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    }).then(r => r.data);
-
-    if (!html) return null;
-
-    let m = html.match(/var player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
-    if (m) {
-      try {
-        const pj = JSON.parse(m[1]);
-        if (pj.url && /^https?:\/\//.test(pj.url)) return pj.url;
-      } catch (e) {}
-    }
-
-    m = html.match(/"url"\s*:\s*["'](https?:\/\/[^"']+\.(m3u8|mp4|flv)[^"']*)["']/i);
-    if (m) return m[1];
-
-    m = html.match(/<video[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (m) return m[1];
-
-    m = html.match(/var\s+(?:videoUrl|url|playUrl)\s*=\s*["'](https?:\/\/[^"']+)["']/i);
-    if (m) return m[1];
-
-    return null;
-  } catch (e) {
-    console.error("[extractRealVideo] 失败:", e.message);
-    return null;
-  }
-}
-
+// ========== 核心修复：解析地址不再过滤，全部返回 ==========
 async function resolvePlay(playKey) {
   try {
     const html = await httpGet(BASE + "/play/" + playKey + ".html");
@@ -420,13 +370,20 @@ async function resolvePlay(playKey) {
     if (!m) return null;
     const pj = JSON.parse(m[1]);
     const url = pj.url || "";
-    let videoUrl = null;
+    const from = pj.from || "";
 
-    if (/^https?:\/\//.test(url)) {
+    // 判断是直链还是解析地址
+    let videoUrl = null;
+    let playerType = "system";
+
+    if (/^https?:\/\//.test(url) && /\.(m3u8|mp4|flv)/.test(url)) {
+      // 直链视频：直接用系统播放器
       videoUrl = url;
-    } else if (PARSE_MAP[pj.from]) {
-      const playerUrl = PARSE_MAP[pj.from] + url;
-      videoUrl = await extractRealVideo(playerUrl);
+      playerType = "system";
+    } else if (PARSE_MAP[from]) {
+      // 解析线路：直接返回解析播放器地址，用webview播放
+      videoUrl = PARSE_MAP[from] + url;
+      playerType = "web";
     }
 
     if (!videoUrl) return null;
@@ -437,8 +394,8 @@ async function resolvePlay(playKey) {
       title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
       link: "play:" + playKey,
       videoUrl,
-      from: pj.from || "",
-      playerType: "system",
+      from: from,
+      playerType: playerType,
     };
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
@@ -458,14 +415,15 @@ async function getLineStreams(id, epIdx) {
     if (!nid) continue;
 
     const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
+    // 关键：只要resolvePlay返回了就加入列表，不再因为提取失败过滤
     if (playRes && playRes.videoUrl) {
-      // 命名：优先网站原生线路名（蓝光2k/至臻4k/自营t）
       let showName = line.name || playRes.from || `线路${i + 1}`;
 
       streams.push({
         name: showName,
         description: `第${epIdx + 1}集`,
         url: playRes.videoUrl,
+        playerType: playRes.playerType || "system",
         customHeaders: { Referer: BASE + "/", "User-Agent": UA },
       });
     }
