@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.1.0",
+  version: "2.2.0",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -323,14 +323,28 @@ async function getVideoDetail(id) {
   const sourceNames = extractSourceNames(html);
 
   // 解析所有线路 + 集数
-  const groups = {};
-  const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
+  const groups = {}, prefixBySid = {};
+  // 主模式 /{prefix}/{id}-{sid}-{nid}.html，捕获真实前缀（play / vodplay / bf ...）。
+  // 用 id 锚定，不会误吃 /10099-1-1.html。
   let em;
+  const pre = new RegExp("/([a-zA-Z0-9_]+)/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   while ((em = pre.exec(html))) {
-    const sid = em[1];
-    const nid = Number(em[2]);
+    const sid = em[2];
+    const nid = Number(em[3]);
     if (!groups[sid]) groups[sid] = [];
     if (groups[sid].indexOf(nid) < 0) groups[sid].push(nid);
+    prefixBySid[sid] = "/" + em[1];
+  }
+  // 兜底：没有带前缀的播放链接时，接受任意 /{id}-{sid}-{nid}.html
+  if (!Object.keys(groups).length) {
+    const pre2 = new RegExp("/" + id + "-(\\d+)-(\\d+)\\.html", "g");
+    while ((em = pre2.exec(html))) {
+      const sid = em[1];
+      const nid = Number(em[2]);
+      if (!groups[sid]) groups[sid] = [];
+      if (groups[sid].indexOf(nid) < 0) groups[sid].push(nid);
+      prefixBySid[sid] = "";
+    }
   }
 
   const lines = [];
@@ -339,7 +353,8 @@ async function getVideoDetail(id) {
     const sid = sids[i];
     const eps = groups[sid].sort(function (a, b) { return a - b; });
     if (!eps.length) continue;
-    lines.push({ sid: sid, name: sourceNames[sid] || "", eps: eps });
+    // prefix 用于拼真实播放地址，避免把 /vodplay/ 之类当成 /play/
+    lines.push({ sid: sid, name: sourceNames[sid] || "", eps: eps, prefix: prefixBySid[sid] || "/play" });
   }
   // 集数多的线路优先（主线路），集数相同时保持文档顺序，避免每次结果抖动
   lines.sort(function (a, b) { return b.eps.length - a.eps.length; });
@@ -617,6 +632,69 @@ async function fetchHtml(url, referer) {
 }
 
 /**
+ * 解析这些资源站（zzrs / fgsrg）用的是 muiplayer 外壳：
+ *   页面里没有 m3u8，只有一个 <div id="player-data"> 承载
+ *   data-u(原始地址) / data-te(token) / data-v(vkey) / data-bt(接口前缀)。
+ *   真实地址由页面 JS 回调 POST {data-bt}mplayer.php 得到：
+ *       $.post(bt + 'mplayer.php', {url: ds.u, token: ds.te}, cb)  ->  {code:200, url:"...m3u8"}
+ *   所以只抓 HTML 永远拿不到 4K/2K 线路，必须复刻这一步。
+ */
+function extractPlayerData(html) {
+  if (!html) return null;
+  const m = String(html).match(/id=["']player-data["']([\s\S]{0,3000}?)>/i);
+  if (!m) return null;
+  const out = {};
+  const re = /data-([a-zA-Z]+)\s*=\s*["']([^"']*)["']/g;
+  let a;
+  while ((a = re.exec(m[1]))) {
+    if (!(a[1] in out)) out[a[1]] = unescapeEntities(a[2]);
+  }
+  return out;
+}
+
+function absolutize(u, baseUrl) {
+  const s = String(u || "");
+  if (/^https?:\/\//i.test(s)) return s;
+  const o = originOf(baseUrl) || (BASE + "/");
+  if (s.indexOf("//") === 0) return "https:" + s;
+  if (s.charAt(0) === "/") return o.replace(/\/$/, "") + s;
+  return o + s;
+}
+
+// POST {bt}mplayer.php {url, token} -> {code:200, url}
+async function muiPlayerApi(pd, pageFinalUrl) {
+  try {
+    const bt = String(pd.bt || "/player/");
+    const apiUrl = absolutize(bt.replace(/\/?$/, "/") + "mplayer.php", pageFinalUrl);
+    const body =
+      "url=" + encodeURIComponent(pd.u) +
+      "&token=" + encodeURIComponent(pd.te || "");
+    const origin = (originOf(pageFinalUrl) || originOf(apiUrl) || (BASE + "/")).replace(/\/$/, "");
+    const res = await Widget.http.post(apiUrl, body, {
+      headers: {
+        "User-Agent": UA,
+        Referer: pageFinalUrl || apiUrl,
+        Origin: origin,
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      },
+    });
+    const json = typeof res.data === "string" ? safeJsonParse(res.data) : res.data;
+    if (json && Number(json.code) === 200) {
+      const u = pickUrl([json.url, json.play_url, json.data && json.data.url]);
+      if (u && /^https?:\/\//i.test(u)) {
+        return { url: u, headers: headersFor(u, apiUrl), via: "mplayer" };
+      }
+    }
+    // 供应用内模块测试器排查：403/其他 code 说明该线路源不可用
+    console.warn("[muiPlayer] code=" + (json && json.code) + " msg=" + (json && json.msg));
+  } catch (e) {
+    console.error("[muiPlayer] 失败:", e.message);
+  }
+  return null;
+}
+
+/**
  * 从解析器页面提取真实播放地址。
  * 返回 { url, headers, via }，失败返回 null。
  */
@@ -625,13 +703,21 @@ async function extractRealVideo(playerUrl, sourceUrl) {
     const parsed = await fetchHtml(playerUrl, originOf(sourceUrl) || BASE + "/");
     const html = parsed.html;
     if (!html) return null;
+    const pageFinalUrl = parsed.finalUrl || playerUrl;
+
+    // 0) muiplayer 解析接口（4K/2K 资源站走这里，HTML 里没有 m3u8）
+    const pd = extractPlayerData(html);
+    if (pd && pd.u) {
+      const r = await muiPlayerApi(pd, pageFinalUrl);
+      if (r) return r;
+    }
 
     // 1) 解析器内的 player_aaaa（同样可能带 encrypt / \/ 转义 / 嵌套对象）
     const pj = extractPlayerJson(html);
     if (pj) {
       const u = decodePlayerUrl(pj);
       if (u && /^https?:\/\//i.test(u)) {
-        return { url: u, headers: headersFor(u, parsed.finalUrl || playerUrl), via: originOf(playerUrl) };
+        return { url: u, headers: headersFor(u, pageFinalUrl), via: originOf(playerUrl) };
       }
     }
 
@@ -647,7 +733,7 @@ async function extractRealVideo(playerUrl, sourceUrl) {
       if (m) {
         const u = pickUrl([m[1]]);
         if (u && /^https?:\/\//i.test(u)) {
-          return { url: u, headers: headersFor(u, parsed.finalUrl || playerUrl), via: originOf(playerUrl) };
+          return { url: u, headers: headersFor(u, pageFinalUrl), via: originOf(playerUrl) };
         }
       }
     }
@@ -690,20 +776,21 @@ function cacheSet(key, value, ttlSec) {
 }
 
 // ========== 播放地址解析 ==========
-async function resolvePlay(playKey) {
+// path 为站内相对路径，如 "/play/100-1-1.html" 或 "/vodplay/200-1-1.html"
+async function resolvePlayPath(path) {
   try {
-    const ck = "mhl_play_" + playKey;
+    const ck = "mhl_path_" + path;
     const cached = cacheGet(ck);
     if (cached) return cached;
 
-    const html = await httpGet(BASE + "/play/" + playKey + ".html");
+    const playPage = BASE + path;
+    const html = await httpGet(playPage);
     if (!html) return null;
     const pj = extractPlayerJson(html);
     if (!pj) return null;
 
     const rawUrl = decodePlayerUrl(pj);
     const from = String(pj.from || pj.flag || "").trim();
-    const playPage = BASE + "/play/" + playKey + ".html";
     let resolved = null;
 
     if (rawUrl && /^https?:\/\//i.test(rawUrl) && looksLikeMedia(rawUrl)) {
@@ -716,6 +803,12 @@ async function resolvePlay(playKey) {
         const playerUrl = bases[i] + encodeURIComponent(rawUrl);
         const r = await extractRealVideo(playerUrl, rawUrl);
         if (r) resolved = { url: r.url, headers: r.headers, via: "parse", playerType: "system" };
+      }
+      // 4K/2K 等资源线路解析失败的可见日志（应用内模块测试器可查看）
+      if (!resolved) {
+        console.warn("[resolvePlay] 解析失败 from=" + (from || "(空)") +
+          " 已尝试解析器=" + bases.map(function (b) { return originOf(b); }).join(",") +
+          " url=" + rawUrl.slice(0, 80));
       }
       // 兜底：交给 App 播放器打开站点播放页（页面内含站点自己的解密/解析逻辑）
       if (!resolved && ENABLE_WEB_PLAYER_FALLBACK) {
@@ -731,10 +824,10 @@ async function resolvePlay(playKey) {
     if (!resolved || !resolved.url) return null;
 
     const out = {
-      id: "play:" + playKey,
+      id: "play:" + path,
       type: "url",
       title: (pj.vod_data && pj.vod_data.vod_name) || pj.title || "播放",
-      link: "play:" + playKey,
+      link: "play:" + path,
       videoUrl: resolved.url,
       from: from,
       playerType: resolved.playerType || "system",
@@ -743,9 +836,29 @@ async function resolvePlay(playKey) {
     cacheSet(ck, out, 120);
     return out;
   } catch (e) {
-    console.error("[resolvePlay] 失败:", playKey, e.message);
+    console.error("[resolvePlay] 失败:", path, e.message);
     return null;
   }
+}
+
+// 兼容两种入口：
+//   "/play/100-1-1.html"   已是站内路径 -> 直接用
+//   "100#2" / "100-1-1"    loadDetail 的 play: 链接 / 播放键 -> 拼成路径
+async function resolvePlay(playKey) {
+  const k = String(playKey || "");
+  if (k.charAt(0) === "/") return resolvePlayPath(k);
+  if (k.indexOf("#") >= 0) {
+    const parts = k.split("#");
+    const vid = parts[0];
+    const idx = parseInt(parts[1] || "0", 10) || 0;
+    const detail = await getVideoDetail(vid);
+    if (!detail || !detail.lines.length) return null;
+    const line = detail.lines[0];
+    const nid = line.eps[idx];
+    if (!nid) return null;
+    return resolvePlayPath(line.prefix + "/" + vid + "-" + line.sid + "-" + nid + ".html");
+  }
+  return resolvePlayPath("/play/" + k + ".html");
 }
 
 // ========== 多线路资源加载 ==========
@@ -758,10 +871,11 @@ async function getLineStreams(id, epIdx) {
     return (async function () {
       const nid = line.eps[epIdx];
       if (!nid) return null;
-      const playKey = `${id}-${line.sid}-${nid}`;
-      const r = await resolvePlay(playKey);
+      // 用详情页里的真实前缀拼地址（/play/、/vodplay/ ...）
+      const playPath = (line.prefix || "/play") + "/" + id + "-" + line.sid + "-" + nid + ".html";
+      const r = await resolvePlayPath(playPath);
       if (!r || !r.videoUrl) {
-        console.warn("[getLineStreams] 线路解析失败:", playKey, line.name || ("线路" + (i + 1)));
+        console.warn("[getLineStreams] 线路解析失败:", playPath, line.name || ("线路" + (i + 1)));
         return null;
       }
       return {
