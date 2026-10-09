@@ -1,7 +1,7 @@
 WidgetMetadata = {
   id: "fengye.movie",
   title: "枫叶影院",
-  version: "2.0.7",
+  version: "2.1.0",
   requiredVersion: "0.0.1",
   description:
     "枫叶4K影院（maihaolian.com）：全线路高清播放，支持分类筛选、热门排序、聚合搜索",
@@ -82,6 +82,8 @@ WidgetMetadata = {
 const BASE = "https://maihaolian.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PLATFORM_URLS = { qq: "/label/qq.html", youku: "/label/youku.html", bli: "/label/bli.html" };
+
+// 解析接口映射：player_aaaa.from -> 解析器入口（末尾已带 ?url=）
 const PARSE_MAP = {
   co: "https://zzrs.mfdyvip.com/player/?url=",
   BBA: "https://zzrs.mfdyvip.com/player/?url=",
@@ -94,8 +96,18 @@ const PARSE_MAP = {
   JD4K: "https://fgsrg.hzqingshan.com/player/?url=",
   JD2K: "https://fgsrg.hzqingshan.com/player/?url=",
 };
+// 去重后的解析器候选列表，用于 from 未知时逐个兜底
+const PARSER_BASES = (function () {
+  const out = [];
+  for (const k in PARSE_MAP) { if (out.indexOf(PARSE_MAP[k]) < 0) out.push(PARSE_MAP[k]); }
+  return out;
+})();
+
 const API_UID_FALLBACK = "DCC147D11943AF75";
 const MAX_AGG_LINES = 6;
+// 最后的兜底：把站点自带播放页交给 App 播放器（内含站点自己的解密/解析逻辑）。
+// 若目标播放器不支持网页播放，可把它设为 false 关闭该兜底。
+const ENABLE_WEB_PLAYER_FALLBACK = true;
 
 // ========== 基础工具函数 ==========
 async function httpGet(url, params) {
@@ -125,6 +137,22 @@ function decodeHtml(s) {
     .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ")
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+// 比 decodeHtml 更全：同时处理数字实体与 \/ 转义
+function unescapeEntities(s) {
+  return String(s == null ? "" : s)
+    .replace(/&amp;/g, "&").replace(/&#0*38;/g, "&").replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"').replace(/&#0*34;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, function (m, h) { return String.fromCharCode(parseInt(h, 16)); })
+    .replace(/&#(\d+);/g, function (m, d) { return String.fromCharCode(parseInt(d, 10)); });
+}
+
+// "\/" -> "/"（JSON 转义斜杠），解析器返回的 url 常见
+function slashDecode(s) {
+  return String(s == null ? "" : s).replace(/\\\//g, "/").replace(/\\u002[fF]/g, "/");
 }
 
 function stripTags(s) {
@@ -184,12 +212,12 @@ async function loadVodList(params = {}) {
     const by = params.by || "time";
     const time = Math.floor(Date.now() / 1000);
     const uid = await apiUid();
-    
+
     const data = await httpPost(BASE + "/index.php/ajax/data", {
       mid: 1, tid: params.tid || "", page, by, time,
       key: md5("DS" + time + uid),
     });
-    
+
     const json = typeof data === "string" ? JSON.parse(data) : data;
     if (!json || Number(json.code) !== 1) throw new Error("接口返回异常");
     const list = (json.list || []).map(vodToItem);
@@ -232,7 +260,7 @@ async function search(params = {}) {
   }
 }
 
-// ========== 核心修复：按网站真实DOM结构提取线路名 ==========
+// ========== 详情页解析 ==========
 function isEpisodeTitle(name) {
   if (!name) return true;
   return /^第\s*\d+\s*[集部季]$/.test(name) ||
@@ -241,63 +269,60 @@ function isEpisodeTitle(name) {
 }
 
 /**
- * 从详情页提取线路名称映射
+ * 从详情页提取线路名称映射。
  * 网站真实结构：
- *   导航栏 .anthology-tab > .swiper-wrapper > 6个 <a class="swiper-slide">
- *   集数列表 .anthology-list > 6个 .anthology-list-box div
- *   第i个导航名 对应 第i个box里的播放链接的sid
- *   注意：导航顺序和sid数字顺序不一致！必须按box出现顺序对应
+ *   导航栏 .anthology-tab > .swiper-wrapper > N 个 <a class="swiper-slide">
+ *   集数列表 .anthology-list > N 个 .anthology-list-box
+ *   第 i 个导航名 对应 第 i 个 box 里的播放链接的 sid（不是按 sid 数字排序）
  */
 function extractSourceNames(html) {
   const map = {};
 
-  // 1. 提取导航标签名（从 .anthology-tab 区域的 <a class="swiper-slide">）
-  const navBlockMatch = html.match(/anthology-tab[\s\S]*?swiper-wrapper[\s\S]*?<\/div>/i);
-  let navNames = [];
-  if (navBlockMatch) {
-    const navLinks = navBlockMatch[0].match(/<a[^>]*class="swiper-slide"[^>]*>([\s\S]*?)<\/a>/gi);
-    if (navLinks && navLinks.length > 0) {
-      navNames = navLinks.map(a => {
-        return stripTags(a).replace(/\(\d+\)$/, "").trim();
-      }).filter(n => n && !isEpisodeTitle(n));
+  // 1. 导航标签名（限定在 anthology-tab 之后的一段窗口内，避免误匹配其它 swiper）
+  const navNames = [];
+  const tabIdx = String(html).search(/anthology-tab/i);
+  if (tabIdx >= 0) {
+    const seg = String(html).slice(tabIdx, tabIdx + 8000);
+    const navRe = /<a[^>]*class="[^"]*swiper-slide[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+    let nm;
+    while ((nm = navRe.exec(seg))) {
+      const n = stripTags(nm[1]).replace(/[（(]\d+[）)]\s*$/, "").trim();
+      if (n && !isEpisodeTitle(n)) navNames.push(n);
     }
   }
 
-  // 2. 按box出现顺序提取sid（不是按sid数字排序！）
-  // 每个 .anthology-list-box 里的第一个播放链接的sid，就是这个box对应的线路
+  // 2. 按 box 出现顺序提取 sid
   const sids = [];
-  const boxRe = /anthology-list-box[^>]*>[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
+  const boxRe = /class="[^"]*anthology-list-box[^"]*"[\s\S]*?\/play\/\d+-(\d+)-\d+\.html/g;
   let m;
   while ((m = boxRe.exec(html))) {
     if (sids.indexOf(m[1]) === -1) sids.push(m[1]);
   }
 
-  // 3. 按顺序一一对应：第i个导航名 → 第i个box的sid
+  // 3. 按顺序一一对应
   for (let i = 0; i < sids.length && i < navNames.length; i++) {
     map[sids[i]] = navNames[i];
   }
-
   return map;
 }
 
 async function getVideoDetail(id) {
   const html = await httpGet(BASE + "/detail/" + id + ".html");
-  if (!html || html.indexOf("slide-info-title") < 0) return null;
+  if (!html || String(html).indexOf("slide-info-title") < 0) return null;
 
-  const tm = html.match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
+  const tm = String(html).match(/slide-info-title[^"]*"[^>]*>([^<]+)</);
   const title = tm ? decodeHtml(tm[1]) : id;
-  const pm = html.match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
+  const pm = String(html).match(/data-src="([^"]+)"[^>]*alt="[^"]*"[^>]*onerror/);
   const poster = pm ? decodeHtml(pm[1]) : "";
-  const dm = html.match(/id="height_limit"[^>]*>([\s\S]*?)<\/div>/);
+  const dm = String(html).match(/id="height_limit"[^>]*>([\s\S]*?)<\/div>/);
   let description = dm ? stripTags(dm[1]) : "";
   description = description.replace(/^简介[:：]/, "").replace(/【[^】]*】/g, "").trim();
-  const um = html.match(/<strong class="r6">更新<\/strong>([^<]*)</);
+  const um = String(html).match(/<strong class="r6">更新<\/strong>([^<]*)</);
   const update = um ? decodeHtml(um[1]).trim() : "";
 
-  // 提取网站原生线路名（蓝光2k / 至臻4k / 自营t / 自营y / 自营r）
   const sourceNames = extractSourceNames(html);
 
-  // 解析所有线路+集数
+  // 解析所有线路 + 集数
   const groups = {};
   const pre = new RegExp("/play/" + id + "-(\\d+)-(\\d+)\\.html", "g");
   let em;
@@ -305,30 +330,25 @@ async function getVideoDetail(id) {
     const sid = em[1];
     const nid = Number(em[2]);
     if (!groups[sid]) groups[sid] = [];
-    groups[sid].push(nid);
+    if (groups[sid].indexOf(nid) < 0) groups[sid].push(nid);
   }
 
-  // 组装线路数组
   const lines = [];
   const sids = Object.keys(groups);
   for (let i = 0; i < sids.length; i++) {
     const sid = sids[i];
-    const eps = groups[sid].sort((a, b) => a - b);
+    const eps = groups[sid].sort(function (a, b) { return a - b; });
     if (!eps.length) continue;
-    lines.push({
-      sid: sid,
-      name: sourceNames[sid] || "", // 网站原生名
-      eps: eps,
-    });
+    lines.push({ sid: sid, name: sourceNames[sid] || "", eps: eps });
   }
-  // 按集数从多到少排序
-  lines.sort((a, b) => b.eps.length - a.eps.length);
+  // 集数多的线路优先（主线路），集数相同时保持文档顺序，避免每次结果抖动
+  lines.sort(function (a, b) { return b.eps.length - a.eps.length; });
 
-  // 相关推荐
-  const recIdx = html.indexOf("精彩推荐</h2>");
-  const relatedItems = recIdx > 0 ? parseCards(html.slice(recIdx)) : [];
+  const recIdx = String(html).indexOf("精彩推荐</h2>");
+  const relatedItems = recIdx > 0 ? parseCards(String(html).slice(recIdx)) : [];
 
-  const isMovie = lines.length && lines[0].eps.length === 1;
+  // 电影判定：所有线路都只有 1 集才算电影（避免预告线路误判）
+  const isMovie = lines.length > 0 && lines.every(function (l) { return l.eps.length === 1; });
   const mediaType = isMovie ? "movie" : "tv";
 
   return { title, poster, description, update, lines, relatedItems, mediaType };
@@ -349,13 +369,15 @@ async function loadDetail(link) {
 
     const primary = lines[0];
     const isMovie = mediaType === "movie";
-    const episodeItems = primary.eps.map((_, idx) => ({
-      id: `play:${id}#${idx}`,
-      type: "url",
-      title: isMovie ? "正片" : `第${idx + 1}集`,
-      link: `play:${id}#${idx}`,
-      mediaType: mediaType,
-    }));
+    const episodeItems = primary.eps.map(function (_, idx) {
+      return {
+        id: `play:${id}#${idx}`,
+        type: "url",
+        title: isMovie ? "正片" : `第${idx + 1}集`,
+        link: `play:${id}#${idx}`,
+        mediaType: mediaType,
+      };
+    });
 
     return {
       id: String(id),
@@ -376,36 +398,259 @@ async function loadDetail(link) {
   }
 }
 
-// ========== 播放地址解析 ==========
-async function extractRealVideo(playerUrl) {
-  try {
-    const html = await Widget.http.get(playerUrl, {
-      headers: {
-        "User-Agent": UA,
-        Referer: BASE + "/",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    }).then(r => r.data);
+// ========== 通用解码 / 提取工具 ==========
+var B64CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+// 纯 JS base64 解码（不依赖 atob，桥接环境可能没有）
+function b64decode(input) {
+  let str = String(input == null ? "" : input).replace(/[\s\r\n]/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!str) return null;
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(str)) return null;
+  while (str.length % 4) str += "=";
+  const out = [];
+  for (let i = 0; i < str.length; i += 4) {
+    const e1 = B64CHARS.indexOf(str.charAt(i));
+    const e2 = B64CHARS.indexOf(str.charAt(i + 1));
+    const c3 = str.charAt(i + 2), c4 = str.charAt(i + 3);
+    const e3 = c3 === "=" ? -1 : B64CHARS.indexOf(c3);
+    const e4 = c4 === "=" ? -1 : B64CHARS.indexOf(c4);
+    if (e1 < 0 || e2 < 0) return null;
+    out.push((e1 << 2) | (e2 >> 4));
+    if (e3 >= 0) out.push(((e2 & 15) << 4) | (e3 >> 2));
+    if (e4 >= 0 && e3 >= 0) out.push(((e3 & 3) << 6) | e4);
+  }
+  let s = "";
+  for (let i = 0; i < out.length; i++) s += String.fromCharCode(out[i] & 0xff);
+  return s;
+}
+
+function hexDecode(s) {
+  const t = String(s == null ? "" : s);
+  if (!/^[0-9a-fA-F]+$/.test(t) || t.length % 2 !== 0 || t.length < 8) return null;
+  let o = "";
+  for (let i = 0; i < t.length; i += 2) o += String.fromCharCode(parseInt(t.substr(i, 2), 16));
+  return o;
+}
+
+function percentDecode(s) {
+  try { return decodeURIComponent(s); } catch (e) {}
+  return String(s)
+    .replace(/%u([0-9a-fA-F]{4})/g, function (m, h) { return String.fromCharCode(parseInt(h, 16)); })
+    .replace(/%([0-9a-fA-F]{2})/g, function (m, h) { return String.fromCharCode(parseInt(h, 16)); });
+}
+
+function safeUnescape(s) {
+  const t = String(s == null ? "" : s);
+  if (/%u[0-9a-fA-F]{4}/.test(t) || /%[0-9a-fA-F]{2}/.test(t)) return percentDecode(t);
+  return t;
+}
+
+function looksLikeMedia(u) {
+  return /\.(m3u8|mp4|flv|mkv|m4v|ts|mov|webm)(\?|#|$)/i.test(u) ||
+         /[?&](?:type|format)=(?:m3u8|mp4|flv)/i.test(u);
+}
+
+// 从候选串里挑最像播放地址的一个（优先媒体直链，其次任意绝对 URL）
+function pickUrl(cands) {
+  let abs = null;
+  for (let i = 0; i < cands.length; i++) {
+    let c = slashDecode(unescapeEntities(cands[i])).trim();
+    if (!c) continue;
+    if (/^\/\//.test(c)) c = "https:" + c;
+    else if (/^[a-z0-9.-]+\.[a-z]{2,}\//i.test(c)) c = "https://" + c;
+    if (!/^https?:\/\//i.test(c)) continue;
+    if (looksLikeMedia(c)) return c;
+    if (!abs) abs = c;
+  }
+  return abs || "";
+}
+
+function originOf(url) {
+  const m = String(url == null ? "" : url).match(/^(https?:\/\/[^\/]+)/i);
+  return m ? m[1] + "/" : "";
+}
+
+// 播放地址请求头：Referer 用“真正吐出该地址的页面”所在域，而不是无脑 BASE
+function headersFor(mediaUrl, playerPageUrl) {
+  const h = { "User-Agent": UA };
+  const ref = originOf(playerPageUrl) || originOf(mediaUrl) || (BASE + "/");
+  if (ref) h.Referer = ref;
+  return h;
+}
+
+// 花括号配平提取（正确处理字符串内的 } 和 \" 转义、嵌套对象）
+function matchBrace(s, start) {
+  let depth = 0, inStr = false, quote = "", esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s.charAt(i);
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === quote) inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inStr = true; quote = ch; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+function safeJsonParse(raw) {
+  if (!raw) return null;
+  const tries = [
+    raw,
+    slashDecode(unescapeEntities(raw)),
+  ];
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      const o = JSON.parse(tries[i]);
+      if (o && typeof o === "object") return o;
+    } catch (e) {}
+  }
+  // 最后兜底：修常见非标准 JSON（单引号 / 裸键 / 尾逗号）
+  try {
+    const t = slashDecode(unescapeEntities(raw))
+      .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
+      .replace(/'/g, '"')
+      .replace(/,\s*([}\]])/g, "$1");
+    const o = JSON.parse(t);
+    if (o && typeof o === "object") return o;
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * 提取 player_aaaa 对象。
+ * 原实现用 /var player_aaaa=(\{[\s\S]*?\})<\/script>/：非贪婪会在第一个 } 处截断，
+ * player_aaaa 里一旦含嵌套对象（如 vod_data），JSON.parse 必失败 -> 返回 null -> 黑屏。
+ * 这里改为：定位 player_aaaa 后按花括号配平截取。
+ */
+function extractPlayerJson(html) {
+  if (!html) return null;
+  const src = String(html);
+  const keys = ["player_aaaa", "player_data", "MacPlayer"];
+  for (let k = 0; k < keys.length; k++) {
+    let idx = src.indexOf(keys[k]);
+    while (idx >= 0) {
+      const bs = src.indexOf("{", idx);
+      if (bs >= 0) {
+        const be = matchBrace(src, bs);
+        if (be > bs) {
+          const obj = safeJsonParse(src.slice(bs, be + 1));
+          if (obj) return obj;
+        }
+      }
+      idx = src.indexOf(keys[k], idx + keys[k].length);
+    }
+  }
+  return null;
+}
+
+/**
+ * 解密 player_aaaa.url。
+ * 苹果CMS 模板常见 encrypt:"1"，url 是 Base64 / unescape / hex / 百分号编码，
+ * 也可能是 \/ 转义的 JSON 字符串。依次尝试并挑出最像 URL 的结果。
+ */
+function decodePlayerUrl(pj) {
+  const raw = unescapeEntities(String(pj && pj.url != null ? pj.url : "")).trim();
+  if (!raw) return "";
+  const enc = String(pj && pj.encrypt != null ? pj.encrypt : "").trim();
+  const isEncrypted = enc !== "" && enc !== "0" && enc !== "false";
+
+  const cands = [];
+  const push = function (v) {
+    if (v == null) return;
+    const s = slashDecode(unescapeEntities(String(v))).trim();
+    if (s && cands.indexOf(s) < 0) cands.push(s);
+  };
+
+  // 原始值优先；合法 URL 天然不是合法 Base64/Hex，所以解码候选不会覆盖原始值
+  push(raw);
+  push(slashDecode(raw));
+  if (/%[0-9a-fA-F]{2}/.test(raw)) push(percentDecode(raw));
+  if (isEncrypted) push(safeUnescape(raw));
+
+  // 即使 encrypt 未置位也尝试解码：部分模板 encrypt:"0" 却仍是 Base64
+  const b1 = b64decode(raw);
+  if (b1) {
+    push(b1);
+    push(safeUnescape(b1));
+    const b2 = b64decode(b1);
+    if (b2) { push(b2); push(safeUnescape(b2)); }
+  }
+  const h1 = hexDecode(raw);
+  if (h1) push(h1);
+
+  return pickUrl(cands);
+}
+
+// 带重定向处理的抓取；桥接层若不自动跟随 302，这里手动跟一次
+async function fetchHtml(url, referer) {
+  const headers = {
+    "User-Agent": UA,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  };
+  if (referer) headers.Referer = referer;
+  let res = null;
+  try {
+    res = await Widget.http.get(url, { headers: headers, allow_redirects: true });
+  } catch (e) {
+    return { html: null, finalUrl: url };
+  }
+  let html = res && res.data;
+  let finalUrl = (res && (res.url || res.responseUrl)) || url;
+
+  const status = res && res.status;
+  const hh = res && res.headers;
+  const loc = hh && (hh.location || hh.Location);
+  const isRedirect = status ? (status >= 300 && status < 400) : false;
+  const bodyIsHtml = typeof html === "string" && /<html|<!doctype|<script|<body/i.test(html);
+  if (loc && (isRedirect || (!bodyIsHtml && /^https?:\/\//i.test(loc)))) {
+    try {
+      finalUrl = /^https?:\/\//i.test(loc) ? loc : (originOf(url) + String(loc).replace(/^\//, ""));
+      const r2 = await Widget.http.get(finalUrl, { headers: headers, allow_redirects: true });
+      if (r2 && r2.data) html = r2.data;
+    } catch (e) {}
+  }
+  return { html: html, finalUrl: finalUrl };
+}
+
+/**
+ * 从解析器页面提取真实播放地址。
+ * 返回 { url, headers, via }，失败返回 null。
+ */
+async function extractRealVideo(playerUrl, sourceUrl) {
+  try {
+    const parsed = await fetchHtml(playerUrl, originOf(sourceUrl) || BASE + "/");
+    const html = parsed.html;
     if (!html) return null;
 
-    let m = html.match(/var player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
-    if (m) {
-      try {
-        const pj = JSON.parse(m[1]);
-        if (pj.url && /^https?:\/\//.test(pj.url)) return pj.url;
-      } catch (e) {}
+    // 1) 解析器内的 player_aaaa（同样可能带 encrypt / \/ 转义 / 嵌套对象）
+    const pj = extractPlayerJson(html);
+    if (pj) {
+      const u = decodePlayerUrl(pj);
+      if (u && /^https?:\/\//i.test(u)) {
+        return { url: u, headers: headersFor(u, parsed.finalUrl || playerUrl), via: originOf(playerUrl) };
+      }
     }
 
-    m = html.match(/"url"\s*:\s*["'](https?:\/\/[^"']+\.(m3u8|mp4|flv)[^"']*)["']/i);
-    if (m) return m[1];
-
-    m = html.match(/<video[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (m) return m[1];
-
-    m = html.match(/var\s+(?:videoUrl|url|playUrl)\s*=\s*["'](https?:\/\/[^"']+)["']/i);
-    if (m) return m[1];
-
+    // 2) 正则兜底
+    const patterns = [
+      /"url"\s*:\s*["']([^"']+\.(?:m3u8|mp4|flv)[^"']*)["']/i,
+      /<video[^>]+src=["']([^"']+)["']/i,
+      /(?:videoUrl|playUrl|main|url)\s*[:=]\s*["'](https?:\\?\/\\?\/[^"']+)["']/i,
+      /(https?:\\?\/\\?\/[^\s"'<>\\]+\.(?:m3u8|mp4|flv)[^\s"'<>]*)/i,
+    ];
+    for (let i = 0; i < patterns.length; i++) {
+      const m = String(html).match(patterns[i]);
+      if (m) {
+        const u = pickUrl([m[1]]);
+        if (u && /^https?:\/\//i.test(u)) {
+          return { url: u, headers: headersFor(u, parsed.finalUrl || playerUrl), via: originOf(playerUrl) };
+        }
+      }
+    }
     return null;
   } catch (e) {
     console.error("[extractRealVideo] 失败:", e.message);
@@ -413,33 +658,90 @@ async function extractRealVideo(playerUrl) {
   }
 }
 
+// from 已知则优先对应解析器，未知则依次尝试全部
+function parserBasesFor(from) {
+  const first = PARSE_MAP[from];
+  if (!first) return PARSER_BASES.slice();
+  const out = [first];
+  for (let i = 0; i < PARSER_BASES.length; i++) {
+    if (PARSER_BASES[i] !== first) out.push(PARSER_BASES[i]);
+  }
+  return out;
+}
+
+// ========== 缓存（内存 + Widget.storage，带 TTL） ==========
+var _memCache = {};
+function cacheGet(key) {
+  const m = _memCache[key];
+  if (m && m.exp > Date.now()) return m.v;
+  try {
+    const raw = Widget.storage.get(key);
+    if (raw) {
+      const o = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (o && o.exp > Date.now()) { _memCache[key] = o; return o.v; }
+    }
+  } catch (e) {}
+  return null;
+}
+function cacheSet(key, value, ttlSec) {
+  const o = { v: value, exp: Date.now() + ttlSec * 1000 };
+  _memCache[key] = o;
+  try { Widget.storage.set(key, JSON.stringify(o)); } catch (e) {}
+}
+
+// ========== 播放地址解析 ==========
 async function resolvePlay(playKey) {
   try {
-    const html = await httpGet(BASE + "/play/" + playKey + ".html");
-    const m = html.match(/var player_aaaa=(\{[\s\S]*?\})<\/script>/);
-    if (!m) return null;
-    const pj = JSON.parse(m[1]);
-    const url = pj.url || "";
-    let videoUrl = null;
+    const ck = "mhl_play_" + playKey;
+    const cached = cacheGet(ck);
+    if (cached) return cached;
 
-    if (/^https?:\/\//.test(url)) {
-      videoUrl = url;
-    } else if (PARSE_MAP[pj.from]) {
-      const playerUrl = PARSE_MAP[pj.from] + url;
-      videoUrl = await extractRealVideo(playerUrl);
+    const html = await httpGet(BASE + "/play/" + playKey + ".html");
+    if (!html) return null;
+    const pj = extractPlayerJson(html);
+    if (!pj) return null;
+
+    const rawUrl = decodePlayerUrl(pj);
+    const from = String(pj.from || pj.flag || "").trim();
+    const playPage = BASE + "/play/" + playKey + ".html";
+    let resolved = null;
+
+    if (rawUrl && /^https?:\/\//i.test(rawUrl) && looksLikeMedia(rawUrl)) {
+      // 直链
+      resolved = { url: rawUrl, headers: headersFor(rawUrl, playPage), via: "direct", playerType: "system" };
+    } else if (rawUrl) {
+      // 需要走解析接口：url 必须编码，否则含 & ? 的参数会被截断
+      const bases = parserBasesFor(from);
+      for (let i = 0; i < bases.length && !resolved; i++) {
+        const playerUrl = bases[i] + encodeURIComponent(rawUrl);
+        const r = await extractRealVideo(playerUrl, rawUrl);
+        if (r) resolved = { url: r.url, headers: r.headers, via: "parse", playerType: "system" };
+      }
+      // 兜底：交给 App 播放器打开站点播放页（页面内含站点自己的解密/解析逻辑）
+      if (!resolved && ENABLE_WEB_PLAYER_FALLBACK) {
+        resolved = {
+          url: playPage,
+          headers: { "User-Agent": UA, Referer: BASE + "/" },
+          via: "web",
+          playerType: "app",
+        };
+      }
     }
 
-    if (!videoUrl) return null;
+    if (!resolved || !resolved.url) return null;
 
-    return {
+    const out = {
       id: "play:" + playKey,
       type: "url",
-      title: (pj.vod_data && pj.vod_data.vod_name) || "播放",
+      title: (pj.vod_data && pj.vod_data.vod_name) || pj.title || "播放",
       link: "play:" + playKey,
-      videoUrl,
-      from: pj.from || "",
-      playerType: "system",
+      videoUrl: resolved.url,
+      from: from,
+      playerType: resolved.playerType || "system",
+      customHeaders: resolved.headers,
     };
+    cacheSet(ck, out, 120);
+    return out;
   } catch (e) {
     console.error("[resolvePlay] 失败:", playKey, e.message);
     return null;
@@ -451,26 +753,45 @@ async function getLineStreams(id, epIdx) {
   const detail = await getVideoDetail(id);
   if (!detail || !detail.lines.length) return [];
 
-  const streams = [];
-  for (let i = 0; i < detail.lines.length; i++) {
-    const line = detail.lines[i];
-    const nid = line.eps[epIdx];
-    if (!nid) continue;
-
-    const playRes = await resolvePlay(`${id}-${line.sid}-${nid}`);
-    if (playRes && playRes.videoUrl) {
-      // 命名：优先网站原生线路名（蓝光2k/至臻4k/自营t）
-      let showName = line.name || playRes.from || `线路${i + 1}`;
-
-      streams.push({
-        name: showName,
+  // 并行解析所有线路，避免逐条串行把加载时间拖爆
+  const jobs = detail.lines.map(function (line, i) {
+    return (async function () {
+      const nid = line.eps[epIdx];
+      if (!nid) return null;
+      const playKey = `${id}-${line.sid}-${nid}`;
+      const r = await resolvePlay(playKey);
+      if (!r || !r.videoUrl) {
+        console.warn("[getLineStreams] 线路解析失败:", playKey, line.name || ("线路" + (i + 1)));
+        return null;
+      }
+      return {
+        name: line.name || r.from || `线路${i + 1}`,
         description: `第${epIdx + 1}集`,
-        url: playRes.videoUrl,
-        customHeaders: { Referer: BASE + "/", "User-Agent": UA },
-      });
-    }
+        url: r.videoUrl,
+        customHeaders: r.customHeaders || { Referer: BASE + "/", "User-Agent": UA },
+        playerType: r.playerType || "system",
+        _rank: r.playerType === "app" ? 2 : (r.via === "direct" ? 0 : 1),
+        _idx: i,
+      };
+    })();
+  });
+
+  const results = await Promise.all(jobs);
+  const streams = results.filter(Boolean);
+  // 排序：直链 -> 解析 -> 网页兜底；同组保持线路顺序
+  streams.sort(function (a, b) { return (a._rank - b._rank) || (a._idx - b._idx); });
+
+  // 按 url 去重
+  const seen = {}, out = [];
+  for (let i = 0; i < streams.length; i++) {
+    const s = streams[i];
+    if (seen[s.url]) continue;
+    seen[s.url] = 1;
+    delete s._rank;
+    delete s._idx;
+    out.push(s);
   }
-  return streams;
+  return out;
 }
 
 async function loadResource(params = {}) {
@@ -479,9 +800,10 @@ async function loadResource(params = {}) {
 
     if (linkStr.indexOf("play:") === 0) {
       const body = linkStr.slice(5);
-      const [id, epStr] = body.split("#");
-      const epIdx = parseInt(epStr || "0", 10);
-      return await getLineStreams(id, epIdx);
+      const parts = body.split("#");
+      const id = parts[0];
+      const epIdx = parseInt(parts[1] || "0", 10);
+      return await getLineStreams(id, isNaN(epIdx) ? 0 : epIdx);
     }
 
     // 聚合搜索场景
@@ -502,7 +824,7 @@ async function loadResource(params = {}) {
     }
     if (!best || bestScore < 0) best = searchItems[0];
 
-    const id = best.id.replace("detail:", "");
+    const id = String(best.id).replace("detail:", "");
     const streams = await getLineStreams(id, Math.max(0, wantEpisode - 1));
     return streams.slice(0, MAX_AGG_LINES);
   } catch (e) {
